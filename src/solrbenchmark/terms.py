@@ -1,142 +1,58 @@
 """
 Create sets of terms (facets, search terms) to use in benchmark tests.
 """
+from solrfixtures.mathtools import clamp
+from solrfixtures.emitter import Emitter, RandomEmitter
+from solrfixtures.emitters.choice import Choice, chance
+from solrfixtures.emitters.fixed import Static
+from solrfixtures.emitters.text import Text
+from solrfixtures.group import ObjectMap
 
-import random
 
-from utils import helpers
-from utils.test_helpers import solr_test_profiles as stp
-
-
-class TermChooser(object):
+def make_search_terms(vocab_words, vocab_chooser, phrase_length_factors=None):
     """
-    Ensure all terms get chosen when choosing randomly from a term set.
+    Generate unique search terms/phrases to use in benchmarking.
 
-    This is a utility meant to be used with the gen function generators
-    in this module. It allows you to provide a list of terms and
-    weights and make repeated calls to `choose` to select from `terms`.
-    All terms are used exactly once before random selection (using the
-    provided `weights`) kicks in, and each individual call to `choose`
-    ensures a group of unique values.
+    Provide the 'vocab_words' -- a sequence of unique vocabulary words,
+    and a 'vocab_chooser' -- a solrfixtures Emitter-like instance that
+    chooses and emits the vocabulary terms (such as a Choice emitter).
 
-    Assuming you are populating a document set that is more populous
-    than your terms list, this ensures all facet values are used at
-    least once. (With weights featuring a long tail of very small
-    weight values, purely random selection otherwise misses lots of
-    terms.) This means, e.g., all of your terms will appear somewhere
-    in your document set, and your facet cardinality will be exactly
-    what you expect, which is important for testing Solr queries.
+    By default, per 100 'vocab_terms' this generates:
+        - 100 1-word terms. (I.e., all provided vocab_terms are used.)
+        - 50 2-word terms.
+        - 30 3-word terms.
+        - 16 4-word terms.
+        - 4 5-word terms.
 
-    The tradeoff is that your first len(terms) choices won't feature
-    any repeated terms. For benchmarking purposes I don't think this
-    makes a difference.
-    """
-    def __init__(self, terms, weights):
-        self.terms = terms
-        self.nterms = len(terms)
-        self.weights = weights
-        self.unused_terms = set(terms)
-
-    def choose(self, num):
-        vals = []
-        num_unused = len(self.unused_terms)
-        if self.unused_terms:
-            if num_unused > num:
-                vals = random.sample(list(self.unused_terms), k=num)
-                self.unused_terms -= set(vals)
-                return vals
-            vals = list(self.unused_terms)
-            self.unused_terms = set()
-            num -= len(vals)
-        choices = set()
-        nchoices = 0
-        while nchoices < num:
-            num -= nchoices
-            choices |= set(random.choices(self.terms, cum_weights=self.weights,
-                                          k=num))
-            nchoices = len(choices)
-        vals.extend(list(choices))
-        return vals
-
-
-def make_vocabulary(num, gen=None):
-    """
-    Generate a vocabulary containing `num` unique terms.
-
-    Pass an optional `gen` function to define how to generate each
-    term. (See `utils.test_helpers.solr_test_profiles` for examples of
-    existing gen functions and gen function generators. You can use any
-    of these or provide your own; it just needs to be a function that
-    takes a dictionary value and returns a value.) Default is the
-    `solr_test_profiles.random_word` function, which creates a random
-    alphabetic, alphanumeric, or numeric word.
-    """
-    gen = gen or stp.random_word
-    words = set([])
-    while len(words) < num:
-        words.add(gen({}))
-    return list(words)
-
-
-def make_phrases(num, numwords, vocabulary, weights=None):
-    """
-    Generate `num` unique phrases from the given `vocabulary`.
-
-    Phrases are of length `numwords`. Each word is chosen randomly from
-    the vocabulary list. You can provide a list of `weights` for each
-    word in the vocabulary if you need a certain word distribution.
-    (Weights should be cumulative.)
-    """
-    phrases = set([])
-    while len(phrases) < num:
-        words = random.choices(vocabulary, cum_weights=weights, k=numwords)
-        phrases.add(' '.join(words))
-    return list(phrases)
-
-
-def make_search_terms(num, gen=None, phrase_length_factors=None):
-    """
-    Generate `num` unique search terms/phrases to use in benchmarking.
-
-    By default, per 100 terms, this generates:
-        - 50 1-word terms
-        - 25 2-word terms
-        - 15 3-word terms
-        - 8 4-word terms
-        - 2 5-word terms
-
-    The 1-word terms that are generated are used to make the multi-word
-    phrases.
-
-    You can change how many of each category are generated by passing a
-    custom `phrase_length_factors` list. [0.5, 0.25, 0.15, 0.08, 0.02]
+    You can change how many of each length are generated by passing a
+    custom `phrase_length_factors` list. [1.0, 0.5, 0.3, 0.16, 0.04]
     is the default. If you want phrases with more or fewer words, just
-    provide the appropriate number of elements. Factors don't have to
-    add up to 1.0; just be aware that you'll get back a total of
-    (sum(factors) * num) terms.
+    provide the appropriate number of elements.
 
     Returns a dict, such as: {
-        '1-word': [50 1-word terms],
-        '2-word': [25 2-word terms],
-        '3-word': [15 3-word terms],
-        '4-word': [8 4-word terms],
-        '5-word': [2 5-word terms],
-        'all': [All 100 terms]
+        '1-word': [100 1-word terms],
+        '2-word': [50 2-word terms],
+        '3-word': [30 3-word terms],
+        '4-word': [16 4-word terms],
+        '5-word': [4 5-word terms],
+        'all': [All 200 terms]
     }
 
-    Term lists are sorted shortest to longest.
+    Term lists are sorted shortest to longest before they are returned.
     """
-    plfactors = phrase_length_factors or [0.5, 0.25, 0.15, 0.08, 0.02]
+    plfactors = phrase_length_factors or [1.0, 0.5, 0.3, 0.16, 0.04]
     terms = {'1-word': [], 'all': []}
+    vocab_length = len(vocab_words)
     for i, plfactor in enumerate(plfactors):
-        numwords = i + 1
-        num_to_gen = int(round(num * plfactor))
-        if numwords == 1:
-            new_terms = make_vocabulary(num_to_gen, gen=gen)
+        term_length = i + 1
+        num_desired = int(round(vocab_length * plfactor))
+        if term_length == 1:
+            new_terms = list(vocab_words)
         else:
-            new_terms = make_phrases(num_to_gen, numwords, terms['1-word'])
-        new_terms = sorted(new_terms)
-        terms['{}-word'.format(numwords)] = new_terms
+            phrase_emitter = Text(Static(term_length), vocab_chooser)
+            new_terms = phrase_emitter(num_desired)
+        new_terms = sorted(new_terms, key=lambda v: (len(v), v))
+        terms[f'{term_length}-word'] = new_terms
         terms['all'].extend(new_terms)
     return terms
 
@@ -165,107 +81,130 @@ def make_facet_terms(total_docs, facet_params, cardinality_floor=10):
         if card is None:
             floor = p.get('card_floor', cardinality_floor)
             multiplier = p.occ_factor * p.card_factor
-            card = helpers.clamp(round(total_docs * multiplier), minnum=floor)
-        terms[field] = make_vocabulary(card, p.gen)
+            card = clamp(round(total_docs * multiplier), mn=floor)
+        terms[field] = p.emitter(card)
     return terms
 
 
-def make_terms_injector_gen(terms, weights, func, chance_of_0=0,
-                            chance_of_injection=10, multi=True, mn=1, mx=5,
-                            mu=1):
-    """
-    Generate a 'gen' function that injects terms into generated data.
+class TermChoice(Emitter):
+    """Ensures all terms are chosen when choosing from a term set."""
 
-    This creates a gen function (i.e. to use as part of a profile for
-    generating mock Solr documents) for a field that contains search
-    terms, where search terms are randomly injected to follow a given
-    distribution over an entire document set. (Each term is used at
-    least once, regardless.)
+    def __init__(self, choice_emitter):
+        self._emitters = ObjectMap({})
+        self.choice_emitter = choice_emitter
+        self.unique_emitter = Choice(
+            choice_emitter.items,
+            weights=choice_emitter.weights,
+            unique=True,
+            each_unique=False,
+            noun=choice_emitter.noun,
+            rng_seed=choice_emitter.rng_seed
+        )
+        self.reset()
 
-    First, it uses the provided `func` (function) to generate most of
-    the data. (So, this should be a gen function corresponding to the
-    kind of data you want in your field.) In general, it has a
-    `chance_of_0` percent chance to generate no data at all, and if
-    `multi` is True then it randomly generates between `mn` and `mx`
-    values for a single field (where `mu` controls the average number).
+    @property
+    def choice_emitter(self):
+        return self._emitters['choice']
 
-    Then, it has a chance to embed a term from `terms` into the data.
-    (Control this using percent `chance_of_injection`. Default is 10%.)
-    When this happens, it uses the provided list of `weights` to select
-    a term, where `weights` is a list of cumulative weights, one for
-    each of `terms`.
+    @choice_emitter.setter
+    def choice_emitter(self, choice_emitter):
+        self._emitters['choice'] = choice_emitter
 
-    When embedding a term, it either overwrites one of the generated
-    field values or gets injected somewhere in the middle. Which value
-    to change and where to be injected are completely random. If
-    injected, it creates spacing so that the terms still match when
-    searched.
-    """
-    def _inject(val, newterm):
-        pos = random.randint(1, len(val))
-        return ' '.join([val[:pos], newterm, val[pos:]]).strip()
+    @property
+    def unique_emitter(self):
+        return self._emitters['unique']
 
-    chooser = TermChooser(terms, weights)
+    @unique_emitter.setter
+    def unique_emitter(self, unique_emitter):
+        self._emitters['unique'] = unique_emitter
 
-    def _gen(record):
-        wrapped_func = func
-        if multi:
-            wrapped_func = stp.multi(func, mn, mx, mu=mu)
-        if chance_of_0 > 0:
-            wrapped_func = stp.chance(wrapped_func, chance=100-chance_of_0)
-        val = wrapped_func(record)
-        inject = random.choices([True, False], [chance_of_injection, 100])[0]
-        if val and inject:
-            newterm = chooser.choose(1)[0]
-            overwrite = random.choice([True, False])
-            if multi:
-                to_change = random.randint(0, len(val)-1)
+    def reset(self):
+        self._emitters.do_method('reset')
+        self.active_emitter = self.unique_emitter
+
+    def seed(self, rng_seed):
+        self._emitters.do_method('seed', rng_seed)
+
+    def emit(self):
+        try:
+            return self.active_emitter()
+        except ValueError:
+            self.active_emitter = self.choice_emitter
+            return self.active_emitter()
+
+    def emit_many(self, number):
+        try:
+            return self.active_emitter(number)
+        except ValueError:
+            unique_remaining = self.active_emitter.num_unique_values
+            result = self.active_emitter(unique_remaining)
+            self.active_emitter = self.choice_emitter
+            result.extend(self.active_emitter(number - unique_remaining))
+            return result
+
+
+class TermInjector(RandomEmitter):
+    """Allows injecting terms into the output of another emitter."""
+
+    def __init__(self, source_emitter, term_emitter, inject_chance=10,
+                 rng_seed=None):
+        self._emitters = ObjectMap({})
+        self.source_emitter = source_emitter
+        self.term_emitter = term_emitter
+        self.chance = inject_chance
+        self.rng_seed = rng_seed
+        self.reset()
+
+    @property
+    def source_emitter(self):
+        return self._emitters['source']
+
+    @source_emitter.setter
+    def source_emitter(self, source_emitter):
+        self._emitters['source'] = source_emitter
+
+    @property
+    def term_emitter(self):
+        return self._emitters['term']
+
+    @term_emitter.setter
+    def term_emitter(self, term_emitter):
+        self._emitters['term'] = term_emitter
+
+    def reset(self):
+        super().reset()
+        self._emitters.setattr('rng_seed', self.rng_seed)
+        self._emitters.do_method('reset')
+
+    def seed(self, rng_seed):
+        super().seed(rng_seed)
+        self._emitters.do_method('seed', rng_seed)
+
+    def _inject(self, new_term, old_term):
+        pos = self.rng.choice(range(1, len(old_term)))
+        return ' '.join([old_term[:pos], new_term, old_term[pos:]]).strip()
+
+    def emit(self):
+        if self.rng.choices([True, False], cum_weights=[self.chance, 100])[0]:
+            if self.rng.choice([True, False]):
+                return self.term_emitter()
+            return self._inject(self.term_emitter(), self.source_emitter())
+        return self.source_emitter()
+
+    def emit_many(self, number):
+        inject_choices = self.rng.choices([True, False], k=number,
+                                          cum_weights=[self.chance, 100])
+        overwrite_choices = self.rng.choices([True, False], k=number)
+        new_terms = self.term_emitter(number)
+        old_terms = self.source_emitter(number)
+        zipped = zip(inject_choices, overwrite_choices, new_terms, old_terms)
+        results = []
+        for inject, overwrite, new, old in zipped:
+            if inject:
                 if overwrite:
-                    val[to_change] = newterm
+                    results.append(self._inject(new, old))
                 else:
-                    val[to_change] = _inject(val[to_change], newterm)
-            elif overwrite:
-                val = newterm
+                    results.append(new)
             else:
-                val = _inject(val, newterm)
-        return val
-    return _gen
-
-
-def make_terms_gen(terms, weights, chance_of_0=0, multi=True, mn=1, mx=2, mu=1):
-    """
-    Generate a 'gen' function to create data using only specific terms.
-
-    This creates a gen function (i.e. to use as part of a profile for
-    generating mock Solr documents) for a facet field, where you want
-    only the specified `terms` used. Terms are selected to follow a
-    given distribution over an entire document set. (Each term is used
-    at least once, provided a large enough document set.)
-
-    If `multi` is True, your facet field is multivalued, and a unique
-    set of `mn` to `mx` terms may be generated. (`mu` in this case is
-    the average number of terms.)
-
-    Use `chance_of_0` to control how often this field is left blank.
-    (If a facet field has an occ_factor parameter, `chance_of_0` should
-    be ((1.0 - occ_factor) * 100).)
-
-    It uses your provided list of `weights` to select a term, where
-    `weights` is a list of cumulative weights, one for each of `terms`.
-    """
-    chooser = TermChooser(terms, weights)
-    num_weights = []
-    if multi:
-        dist_func = helpers.poiss_cdr
-        num_weights = helpers.distribute(mx - mn + 1, dist_func, mu=mu)
-    
-    def _gen(record):
-        if multi:
-            k = random.choices(range(mn, mx + 1), cum_weights=num_weights)[0]
-            return chooser.choose(k)
-        return chooser.choose(1)[0]
-
-    if chance_of_0 > 0:
-        return stp.chance(_gen, chance=100-chance_of_0)
-    return _gen
-
+                results.append(old)
+        return results
