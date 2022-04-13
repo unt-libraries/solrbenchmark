@@ -1,0 +1,35 @@
+[tool.poetry]
+name = "solrbenchmark"
+version = "0.1"
+description = "Python package for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and logging results."
+readme = "README.md"
+authors = ["Jason Thomale <jason.thomale@unt.edu>"]
+packages = [
+    { include = "solrbenchmark", from = "src"}
+]
+
+[tool.poetry.dependencies]
+python = "^3.7"
+solrfixtures = [
+    { git = "git@content.library.unt.edu:utilities/pypackages/solrfixtures.git", rev = "refactor" }
+]
+ujson = [
+    { version = ">=4.2.0", python = "^3.10" },
+    { version = ">=4.0.0", python = "~3.9" },
+    { version = ">=2.0.0", python = "~3.7 || ~3.8" }
+]
+typing_extensions = [
+    { version = "^4.1.1", python = "~3.7" }
+]
+pytest = [
+    { version = "^6.2.5", python = "^3.10", optional = true },
+    { version = ">=5.4.2", python = "~3.9",  optional = true },
+    { version = ">=5.1.0", python= "~3.7 || ~3.8", optional = true }
+]
+
+[tool.poetry.extras]
+test = ["pytest"]
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"

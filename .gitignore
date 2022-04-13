@@ -1,0 +1,8 @@
+*.pyc
+
+poetry.lock
+dist/
+.python-version
+.cache/
+.pytest_cache/
+.tox/
