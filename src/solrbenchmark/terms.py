@@ -2,11 +2,12 @@
 Create sets of terms (facets, search terms) to use in benchmark tests.
 """
 from solrfixtures.mathtools import clamp
-from solrfixtures.emitter import Emitter, RandomEmitter
+from solrfixtures.emitter import Emitter
 from solrfixtures.emitters.choice import Choice, chance
 from solrfixtures.emitters.fixed import Static
 from solrfixtures.emitters.text import Text
 from solrfixtures.group import ObjectMap
+from solrfixtures.mixins import RandomMixin
 
 
 def make_search_terms(vocab_words, vocab_chooser, phrase_length_factors=None):
@@ -143,7 +144,7 @@ class TermChoice(Emitter):
             return result
 
 
-class TermInjector(RandomEmitter):
+class TermInjector(RandomMixin, Emitter):
     """Allows injecting terms into the output of another emitter."""
 
     def __init__(self, source_emitter, term_emitter, inject_chance=10,
@@ -152,8 +153,7 @@ class TermInjector(RandomEmitter):
         self.source_emitter = source_emitter
         self.term_emitter = term_emitter
         self.chance = inject_chance
-        self.rng_seed = rng_seed
-        self.reset()
+        super().__init__(rng_seed=rng_seed)
 
     @property
     def source_emitter(self):
