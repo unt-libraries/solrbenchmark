@@ -26,6 +26,13 @@ class SearchField(Field):
         self.term_emitter = None
 
     @property
+    def terms(self):
+        try:
+            return self._emitters.get('term').items
+        except AttributeError:
+            return None
+
+    @property
     def term_emitter(self):
         return self._emitters.get('term')
 
@@ -162,6 +169,13 @@ class FacetField(Field):
             self.cardinality_function = static_cardinality(10)
         else:
             self.cardinality_function = cardinality_function
+
+    @property
+    def terms(self):
+        try:
+            return self._emitters.get('emitter').items
+        except AttributeError:
+            return None
 
     @property
     def emit_pchance(self):

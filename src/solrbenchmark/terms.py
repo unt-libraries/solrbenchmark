@@ -90,6 +90,10 @@ class TermChoice(Emitter):
     def unique_emitter(self, unique_emitter):
         self._emitters['unique'] = unique_emitter
 
+    @property
+    def items(self):
+        return self._emitters['choice'].items
+
     def reset(self):
         self._emitters.do_method('reset')
         self.active_emitter = self.unique_emitter
