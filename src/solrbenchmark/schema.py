@@ -1,7 +1,11 @@
 """Contains solrfixture schema components for benchmarking."""
-from solrfixtures.emitters.choice import chance as chance_em
+import sys
+
+from solrfixtures.emitters.choice import chance as chance_em, gaussian_choice
 from solrfixtures.mathtools import clamp
 from solrfixtures.profile import Field, Schema
+
+from solrbenchmark import terms
 
 
 class SearchField(Field):
@@ -64,7 +68,7 @@ class SearchField(Field):
 
     def configure_injection(self, term_emitter, inject_pchance=10,
                             overwrite_pchance=50):
-        """Configure injecting external search terms into field output."""
+        """Configures injecting search terms into field output."""
         self.term_emitter = term_emitter
         self.inject_pchance = inject_pchance
         self.overwrite_pchance = overwrite_pchance
@@ -120,8 +124,78 @@ class SearchField(Field):
         return self._cache
 
 
+def static_cardinality(cardinality):
+    """Make a function that gives a static cardinality value."""
+    def calculate(total_docs):
+        return cardinality
+    return calculate
+
+
+def cardinality_factor(factor, floor=10):
+    """Make a function that gives a multiplier-based cardinality value."""
+    def calculate(total_docs):
+        return round(clamp(total_docs * factor, mn=floor))
+    return calculate
+
+
 class FacetField(Field):
-    """Implements a facet-type field, for benchmarking."""
+    """Implements a facet-type field, for benchmarking.
+
+    Note: "cardinality" refers to how many unique facet terms exist. It
+    is often a function of the total number of documents in a document
+    set. The 'cardinality_function' attribute defines how to calculate
+    cardinality for a given FacetField.
+    """
+
+    def __init__(self, name, fterm_emitter, repeat=None, emit_pchance=None,
+                 cardinality_function=None, rng_seed=None):
+        """Inits a FacetField instance."""
+        if emit_pchance is None:
+            self.emit_pchance = 100
+            gate = None
+        else:
+            self.emit_pchance = emit_pchance
+            gate = chance_em(emit_pchance)
+        super().__init__(name, None, repeat, gate, rng_seed)
+        self.fterm_emitter = fterm_emitter
+        if cardinality_function is None:
+            self.cardinality_function = static_cardinality(10)
+        else:
+            self.cardinality_function = cardinality_function
+
+    @property
+    def emit_pchance(self):
+        return self._emit_pchance
+
+    @emit_pchance.setter
+    def emit_pchance(self, pchance):
+        self._emit_pchance = clamp(pchance, mn=0, mx=100)
+
+    @property
+    def fterm_emitter(self):
+        return self._emitters['fterm']
+
+    @fterm_emitter.setter
+    def fterm_emitter(self, emitter):
+        self._emitters['fterm'] = emitter
+
+    def build_facet_values_for_docset(self, total_docs):
+        """Build or rebuild facet values for a document set.
+
+        Note that this regenerates facets terms and resets the field
+        each time it runs. You only need to run it once per full
+        document set.
+        """
+        cardinality = self.cardinality_function(total_docs)
+        fterms = self.fterm_emitter(cardinality)
+        num_fterms = len(fterms)
+        self.emitter = terms.TermChoice(gaussian_choice(
+            fterms,
+            mu=clamp(num_fterms * 0.01, mn=1.0),
+            sigma=clamp(num_fterms * 0.1, mn=1.0, mx=500.0),
+            weight_floor=sys.float_info.min
+        ))
+        self.reset()
 
 
 class BenchmarkSchema(Schema):

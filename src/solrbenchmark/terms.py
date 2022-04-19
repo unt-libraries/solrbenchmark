@@ -58,35 +58,6 @@ def make_search_terms(vocab_words, vocab_chooser, phrase_length_factors=None):
     return terms
 
 
-def make_facet_terms(total_docs, facet_params, cardinality_floor=10):
-    """
-    Generate sets of facet terms based on a set of `facet_params`.
-
-    The given `facet_params` should be a `parameters.FacetFieldParams`
-    object. A set of unique terms is generated for each facet, where
-    how many terms (cardinality) is controlled by `facet_params` and
-    the total number of documents being generated (`total_docs`).
-
-    You can set a default `cardinality_floor` to be used as the
-    smallest number of terms that can be generated (if not overridden
-    in `facet_params`). Default is 10.
-
-    Returns a dict, where keys reflect facet fields (and are identical
-    to keys in `facet_params`) and values are term lists for each
-    corresponding facet field.
-    """
-    terms = {}
-    for field, p in facet_params.items():
-        fterms = set([])
-        card = p.cardinality
-        if card is None:
-            floor = p.get('card_floor', cardinality_floor)
-            multiplier = p.occ_factor * p.card_factor
-            card = clamp(round(total_docs * multiplier), mn=floor)
-        terms[field] = p.emitter(card)
-    return terms
-
-
 class TermChoice(Emitter):
     """Ensures all terms are chosen when choosing from a term set."""
 
