@@ -2,6 +2,7 @@
 import sys
 
 from solrfixtures.emitters.choice import chance as chance_em, gaussian_choice
+from solrfixtures.group import ObjectMap
 from solrfixtures.mathtools import clamp
 from solrfixtures.profile import Field, Schema
 
@@ -194,7 +195,7 @@ class FacetField(Field):
         self._emitters['fterm'] = emitter
 
     def build_facet_values_for_docset(self, total_docs):
-        """Build or rebuild facet values for a document set.
+        """Builds or rebuilds facet values for a document set.
 
         Note that this regenerates facets terms and resets the field
         each time it runs. You only need to run it once per full
@@ -214,3 +215,46 @@ class FacetField(Field):
 
 class BenchmarkSchema(Schema):
     """Implements a schema class for benchmarking."""
+
+    def __init__(self, *fields):
+        """Inits a BenchmarkSchema instance."""
+        self.fields = ObjectMap({})
+        self.search_fields = ObjectMap({})
+        self.facet_fields = ObjectMap({})
+        self.add_fields(*fields)
+        self._search_term_emitter = None
+
+    @property
+    def search_term_emitter(self):
+        return self._search_term_emitter
+
+    @property
+    def search_terms(self):
+        try:
+            return self._search_term_emitter.items
+        except AttributeError:
+            return None
+
+    def add_fields(self, *fields):
+        """Adds fields to your schema, in the order provided."""
+        for field in fields:
+            self.fields.update({field.name: field})
+            if hasattr(field, 'configure_injection'):
+                self.search_fields.update({field.name: field})
+            if hasattr(field, 'build_facet_values_for_docset'):
+                self.facet_fields.update({field.name: field})
+
+    def configure_search_term_injection(self, term_emitter,
+                                        base_inject_pchance=50,
+                                        overwrite_pchance=50):
+        """Configures injecting search terms into output."""
+        self._search_term_emitter = term_emitter
+        inject_pchance_per_sf = base_inject_pchance / len(self.search_fields)
+        for sfield in self.search_fields.values():
+            inj_pchance = inject_pchance_per_sf / (sfield.emit_pchance / 100)
+            sfield.configure_injection(term_emitter, inj_pchance,
+                                       overwrite_pchance)
+
+    def build_facet_values_for_docset(self, num_docs):
+        """Builds or rebuilds facet values for a document set."""
+        self.facet_fields.do_method('build_facet_values_for_docset', num_docs)
