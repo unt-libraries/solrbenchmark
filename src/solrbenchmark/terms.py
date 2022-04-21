@@ -3,23 +3,29 @@ Create sets of terms (facets, search terms) to use in benchmark tests.
 """
 from solrfixtures.mathtools import clamp
 from solrfixtures.emitter import Emitter
-from solrfixtures.emitters.choice import Choice, chance
+from solrfixtures.emitters.choice import Choice, chance, gaussian_choice
 from solrfixtures.emitters.fixed import Static
 from solrfixtures.emitters.text import Text
 from solrfixtures.group import ObjectMap
 from solrfixtures.mixins import RandomMixin
 
 
-def make_search_terms(vocab_words, vocab_chooser, phrase_length_factors=None):
+def make_search_terms(vocab_chooser, phrase_length_factors=None):
     """
     Generate unique search terms/phrases to use in benchmarking.
 
-    Provide the 'vocab_words' -- a sequence of unique vocabulary words,
-    and a 'vocab_chooser' -- a solrfixtures Emitter-like instance that
-    chooses and emits the vocabulary terms (such as a Choice emitter).
+    Provide the 'vocab_chooser' -- a solrfixtures Emitter-like instance
+    that chooses and emits individual vocabulary words (such as a Choice
+    emitter). Accessing vocab_chooser.items should return a full list of
+    1-word terms to use; emitting values should choose words from this
+    vocabulary based on whatever weighting you want. Note that you
+    should AVOID using an emitter where `unique` is True, since phrase
+    terms will require words to be repeated. (You can use `each_unique`
+    if you want to ensure any one phrase does not have repetition.)
 
-    By default, per 100 'vocab_terms' this generates:
-        - 100 1-word terms. (I.e., all provided vocab_terms are used.)
+    By default, per 100 'vocab_words' this generates:
+        - 100 1-word terms. (I.e., all provided vocab_chooser.items are
+          used.)
         - 50 2-word terms.
         - 30 3-word terms.
         - 16 4-word terms.
@@ -30,36 +36,28 @@ def make_search_terms(vocab_words, vocab_chooser, phrase_length_factors=None):
     is the default. If you want phrases with more or fewer words, just
     provide the appropriate number of elements.
 
-    Returns a dict, such as: {
-        '1-word': [100 1-word terms],
-        '2-word': [50 2-word terms],
-        '3-word': [30 3-word terms],
-        '4-word': [16 4-word terms],
-        '5-word': [4 5-word terms],
-        'all': [All 200 terms]
-    }
-
-    Term lists are sorted shortest to longest before they are returned.
+    Returns a complete list of all terms, sorted by number of words and
+    then shortest to longest.
     """
     plfactors = phrase_length_factors or [1.0, 0.5, 0.3, 0.16, 0.04]
-    terms = {'1-word': [], 'all': []}
+    terms = []
+    vocab_words = list(set(vocab_chooser.items))
     vocab_length = len(vocab_words)
     for i, plfactor in enumerate(plfactors):
         term_length = i + 1
         num_desired = int(round(vocab_length * plfactor))
         if term_length == 1:
-            new_terms = list(vocab_words)
+            new_terms = vocab_words
         else:
             phrase_emitter = Text(Static(term_length), vocab_chooser)
             new_terms = phrase_emitter(num_desired)
         new_terms = sorted(new_terms, key=lambda v: (len(v), v))
-        terms[f'{term_length}-word'] = new_terms
-        terms['all'].extend(new_terms)
+        terms.extend(new_terms)
     return terms
 
 
 class TermChoice(Emitter):
-    """Ensures all terms are chosen when choosing from a term set."""
+    """Emitter that ensures all terms from a term set get chosen."""
 
     def __init__(self, choice_emitter):
         self._emitters = ObjectMap({})
@@ -117,3 +115,37 @@ class TermChoice(Emitter):
             self.active_emitter = self.choice_emitter
             result.extend(self.active_emitter(number - unique_remaining))
             return result
+
+
+def make_search_terms_and_emitter(vocab_word_emitter, num_vocab_words=50,
+                                  phrase_length_factors=None):
+    """Create a set of search terms and an emitter that emits them.
+
+    This is just a convenience function to simplify making an emitter
+    to emit a set of search terms, based on an emitter that generates
+    vocabulary words. These are steps you could of course do yourself,
+    but this provides some reasonable default behavior. E.g., the
+    emitters that choose terms use gaussian weighting, with mu and
+    sigma calculated as fractions of the number of terms.
+
+    Note: Make sure your `vocab_word_emitter` will emit AT LEAST enough
+    unique words to satisfy `num_vocab_words`. If not, it will cause an
+    infinite loop.
+
+    Returns:
+        The search term emitter, TermChoice type. This will ensure all
+        of the generated terms are emitted once before any are reused.
+        You can access the full list of search terms on the `items`
+        attribute.
+    """
+    words = set()
+    while len(words) < num_vocab_words:
+        words |= set(vocab_word_emitter(num_vocab_words))
+    vocab = sorted(list(words), key=lambda word: (len(word), word))
+    mu = num_vocab_words * 0.5
+    sigma = num_vocab_words * 0.2
+    vocab_chooser = gaussian_choice(vocab, mu=mu, sigma=sigma)
+    sterms = make_search_terms(vocab_chooser, phrase_length_factors)
+    num_sterms = len(sterms)
+    return TermChoice(gaussian_choice(sterms, mu=num_sterms * 0.5,
+                                      sigma=num_sterms * 0.4))
