@@ -4,7 +4,6 @@ import os
 import ujson
 
 
-
 class FileSet:
     """Class for managing relevant docset files."""
     def __init__(self, basepath, fileset_id):
