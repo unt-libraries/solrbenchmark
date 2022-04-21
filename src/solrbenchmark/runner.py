@@ -1,6 +1,5 @@
-"""
-Run benchmarking tests.
-"""
+"""Contains classes for running benchmarking tests and compiling stats."""
+import itertools
 
 import ujson
 
@@ -8,9 +7,8 @@ from . import timer
 
 
 class BenchmarkTestLog(object):
-    """
-    Track benchmark tests and compile stats.
-    """
+    """Class for tracking and compiling benchmarking stats."""
+
     def __init__(self, test_id, solr_version=None, solr_caches=None,
                  solr_conf=None, solr_schema=None, os=None, os_memory=None,
                  jvm_memory=None, jvm_settings=None, collection_size=None,
@@ -91,33 +89,38 @@ class BenchmarkTestLog(object):
 
 
 class BenchmarkTestRunner(object):
-    """
-    Run Solr benchmark tests.
-    """
+    """Class for running Solr benchmark tests."""
+
     def __init__(self, test_docset, test_log, conn):
         self.test_docset = test_docset
         self.test_log = test_log
         self.conn = conn
 
     def index_docs(self, batch_size=1000, verbose=True, track_commits=True,
-                   timer_obj=None):
-        t = timer_obj or timer.Timer()
-        n = len(self.test_docset.docs)
-        for start in range(0, n, batch_size):
-            end = (start + batch_size) if batch_size < (n - start) else n
-            if verbose:
-                print('Indexing {} to {}.'.format(start + 1, end))
-            t.start('indexing')
-            self.conn.add(self.test_docset.docs[start:end], commit=False)
-            t.end('indexing')
-            if track_commits:
+                   index_timer=None):
+        index_timer = index_timer or timer.Timer()
+        i = 1
+        while True:
+            batch = list(itertools.islice(self.test_docset.docs, batch_size))
+            if batch:
+                if verbose:
+                    print(f'Indexing {i} to {i + batch_size - 1}.')
+                index_timer.start('indexing')
+                self.conn.add(batch, commit=False)
+                index_timer.end('indexing')
                 if verbose:
                     print('Committing...')
-                t.start('committing')
-                self.conn.commit()
-                t.end('committing')
-        self.conn.commit()
-        stats = self.compile_indexing_results(t, n, batch_size)
+                if track_commits:
+                    index_timer.start('committing')
+                    self.conn.commit()
+                    index_timer.end('committing')
+                else:
+                    self.conn.commit()
+                i += batch_size
+            else:
+                break
+        total = self.test_docset.total_docs
+        stats = self.compile_indexing_results(index_timer, total, batch_size)
         self.test_log.indexing_stats = stats
         return stats
 
@@ -149,30 +152,26 @@ class BenchmarkTestRunner(object):
         return indexing_stats
 
     def search(self, q, kwargs, repeat_n=0, ignore_n=0):
-        t = timer.Timer()
+        search_timer = timer.Timer()
         hits = None
         for i in range(0, repeat_n + 1):
             if i < ignore_n:
                 self.conn.search(q=q, **kwargs)
             else:
-                t.start('search')
+                search_timer.start('search')
                 result = self.conn.search(q=q, **kwargs)
-                t.end('search')
+                search_timer.end('search')
                 hits = hits or result.hits
-        tstats = t.compile_statistics(convert_to_seconds=True)
+        tstats = search_timer.compile_statistics(convert_to_seconds=True)
         return {
             'hits': hits,
             'avg_qtime_ms': round(tstats['event_averages']['search'] * 1000, 4)
         }
 
-    def run_searches(self, label, kwargs, group='all', repeat_n=0, ignore_n=0,
-                     include_blank=True, verbose=True):
-        terms = [''] if include_blank else []
-        terms += self.test_docset.search_terms[group]
+    def run_searches(self, terms, label, query_kwargs, repeat_n=0, ignore_n=0,
+                     verbose=True):
         if verbose:
-            print('`{}` - Searching {}`{}` terms ({} searches) '.format(
-                label, 'blank + ' if include_blank else '', group, len(terms)
-            ), end='', flush=True)
+            print(f"{label} ({len(terms)} searches) ", end='', flush=True)
         term_results = []
         for term in terms:
             result = self.search(term, kwargs, repeat_n, ignore_n)
@@ -185,15 +184,15 @@ class BenchmarkTestRunner(object):
                 print('.', end='', flush=True)
         if verbose:
             print(flush=True)
-        stats = self.compile_search_results(term_results, include_blank)
+        stats = self.compile_search_results(term_results, '' in terms)
         self.test_log.search_stats[label] = stats
         return stats
 
-    def compile_search_results(self, term_results, include_blank):
+    def compile_search_results(self, term_results, blank_included):
         qtime = sum([r['qtime_ms'] for r in term_results])
         return {
             'total_qtime_ms': round(qtime, 4),
             'avg_qtime_ms': round(qtime / len(term_results), 4),
             'term_results': term_results,
-            'blank_included': include_blank
+            'blank_included': blank_included
         }
