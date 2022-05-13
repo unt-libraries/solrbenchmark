@@ -53,9 +53,14 @@ def term_selection_sanity_check():
           all output terms must be unique and there must not be any
           output terms that aren't in the set of available terms.
     """
-    def _term_selection_sanity_check(output, available_terms):
-        output_terms = set(output)
-        num_output_values = len(output)
+    def _term_selection_sanity_check(output, available_terms,
+                                     term_exact_match):
+        if term_exact_match:
+            found = output
+        else:
+            found = [t for v in output for t in available_terms if t in v]
+        output_terms = set(found)
+        num_output_values = len(found)
         num_output_terms = len(output_terms)
         num_available_terms = len(available_terms)
         available_terms = set(available_terms)
