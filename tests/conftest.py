@@ -2,6 +2,12 @@
 from dotenv import dotenv_values
 import pysolr
 import pytest
+from solrfixtures.emitters.choice import chance, Choice
+from solrfixtures.emitters.fixed import Iterative, Sequential, Static
+from solrfixtures.emitters.fromfields import CopyFields
+from solrfixtures.profile import Field
+
+from solrbenchmark import schema
 
 
 _from_dotenv = dotenv_values('.env')
@@ -108,3 +114,52 @@ def phrases_sanity_check():
             assert words_sizes[index] == tlen_counts[index]
         assert sum(words_sizes) == len(sterms) == len(set(sterms))
     return _phrases_sanity_check
+
+
+@pytest.fixture
+def simple_schema():
+    """Fixture: returns a func that generates a simple BenchmarkSchema.
+
+    This is only used in tests that don't test BenchmarkSchema
+    directly.
+    """
+    colors = ['red', 'yellow', 'black', 'orange', 'green', 'white', 'blue',
+              'grey', 'brown', 'purple']
+    patterns = ['paisley', 'striped', 'checkered', 'plaid', 'solid']
+
+    def _simple_schema(numdocs, inject_chance, overwrite_chance, seed):
+        myschema = schema.BenchmarkSchema(
+            Field('id', Sequential(range(1, 1000000))),
+            Field(
+                'title',
+                Iterative(lambda: (f"Test Doc {n}" for n in range(1, 1000000)))
+            ),
+            schema.FacetField(
+                'colors', Choice(colors), repeat=Choice(range(1, 4)),
+                gate=chance(0.66),
+                cardinality_function=schema.static_cardinality(len(colors))
+            ),
+            schema.FacetField(
+                'pattern', Choice(patterns),
+                cardinality_function=schema.static_cardinality(len(patterns))
+            )
+        )
+        myschema.add_fields(
+            schema.SearchField(
+                'title_search',
+                CopyFields(myschema.fields['title'])
+            ),
+            schema.SearchField(
+                'colors_search',
+                CopyFields(myschema.fields['colors']),
+            ),
+            schema.SearchField(
+                'pattern_search',
+                CopyFields(myschema.fields['pattern'])
+            )
+        )
+        sterm_emitter = Sequential([f"_{v * 3}_" for v in LETTERS])
+        myschema.configure(numdocs, sterm_emitter, inject_chance,
+                           overwrite_chance, seed)
+        return myschema
+    return _simple_schema

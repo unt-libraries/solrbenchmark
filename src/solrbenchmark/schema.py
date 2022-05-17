@@ -206,6 +206,7 @@ class BenchmarkSchema(Schema):
         self.facet_fields = ObjectMap({})
         self.add_fields(*fields)
         self._search_term_emitter = None
+        self._num_docs = None
 
     @property
     def search_term_emitter(self):
@@ -217,6 +218,15 @@ class BenchmarkSchema(Schema):
             return self._search_term_emitter.items
         except AttributeError:
             return None
+
+    @property
+    def num_docs(self):
+        return self._num_docs
+
+    @num_docs.setter
+    def num_docs(self, num_docs):
+        self._num_docs = num_docs
+        self.facet_fields.do_method('build_facet_values_for_docset', num_docs)
 
     def add_fields(self, *fields):
         """Adds fields to your schema, in the order provided."""
@@ -293,7 +303,7 @@ class BenchmarkSchema(Schema):
               empty 0.1 of the time, max term_doc_ratio would be 0.5.
         """
         self.seed_fields(rng_seed)
-        self.facet_fields.do_method('build_facet_values_for_docset', num_docs)
+        self.num_docs = num_docs
         self._search_term_emitter = search_term_emitter
         search_field_names = self.search_fields.keys()
 
