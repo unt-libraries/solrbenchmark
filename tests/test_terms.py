@@ -44,7 +44,7 @@ def test_termchoice_emit_once_as_batch(seed, choice_emitter, expected,
     tc_emitter = terms.TermChoice(choice_emitter, rng_seed=seed)
     result = tc_emitter(len(expected)) 
     assert result == expected
-    term_selection_sanity_check(result, choice_emitter.items)
+    term_selection_sanity_check(result, choice_emitter.items, True)
 
 
 @pytest.mark.parametrize('seed, choice_emitter, expected', [
@@ -66,7 +66,7 @@ def test_termchoice_emit_one_at_a_time(seed, choice_emitter, expected,
     tc_emitter = terms.TermChoice(choice_emitter, rng_seed=seed)
     result = [tc_emitter() for _ in range(len(expected))]
     assert result == expected
-    term_selection_sanity_check(result, choice_emitter.items)
+    term_selection_sanity_check(result, choice_emitter.items, True)
 
 
 @pytest.mark.parametrize('choice_emitter', [
@@ -208,4 +208,4 @@ def test_makesearchtermemitter(seed, emitter, vocab_size, phw_sizes,
         phw_sizes = terms._default_phrase_counts(vocab_size)
     vocabulary_sanity_check(stem.items[:vocab_size], vocab_size)
     phrases_sanity_check(stem.items[vocab_size:], phw_sizes)
-    term_selection_sanity_check(result, stem.items)
+    term_selection_sanity_check(result, stem.items, True)
