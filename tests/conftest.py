@@ -129,7 +129,10 @@ def simple_schema():
 
     def _simple_schema(numdocs, inject_chance, overwrite_chance, seed):
         myschema = schema.BenchmarkSchema(
-            Field('id', Sequential(range(1, 1000000))),
+            Field(
+                'id',
+                Iterative(lambda: (f"{n:07d}" for n in range(1, 1000000)))
+            ),
             Field(
                 'title',
                 Iterative(lambda: (f"Test Doc {n}" for n in range(1, 1000000)))

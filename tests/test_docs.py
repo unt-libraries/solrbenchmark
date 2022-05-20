@@ -288,8 +288,8 @@ def test_testdocset_init(testdocset_check):
     # At this stage we don't check docset.docs, because iterating
     # through the `docs` attribute populates facet counts, etc.
     testdocset_check(docset, exp_search=sterms, exp_facet=fterms,
-                     exp_total_docs=0, exp_facet_counts={},
-                     exp_facet_counts_with_vals={})
+                     exp_total_docs=0, exp_facet_counts={'colors': []},
+                     exp_facet_counts_with_vals={'colors': []})
 
 
 @pytest.mark.parametrize('fterms, test_docs, exp_fcounts, exp_fcounts_vals', [
@@ -373,22 +373,23 @@ def test_testdocset_fromschema_no_fileset(testdocset_check, simple_schema):
     # values, etc. This should work whether the 'fileset' argument is
     # used or not.
     exp_docs = [
-        {'id': 1, 'title': 'Test Doc 1', 'colors': None, 'pattern': 'striped',
-         'title_search': 'Test Doc 1', 'colors_search': None,
-         'pattern_search': 'striped'},
-        {'id': 2, 'title': 'Test Doc 2',
+        {'id': '0000001', 'title': 'Test Doc 1', 'colors': None,
+         'pattern': 'striped', 'title_search': 'Test Doc 1',
+         'colors_search': None, 'pattern_search': 'striped'},
+        {'id': '0000002', 'title': 'Test Doc 2',
          'colors': ['green', 'yellow', 'brown'], 'pattern': 'solid',
          'title_search': 'Test Doc _aaa_  2',
          'colors_search': ['green', 'yellow', 'brown'],
          'pattern_search': 'sol _bbb_ id'},
-        {'id': 3, 'title': 'Test Doc 3', 'colors': None, 'pattern': 'paisley',
-         'title_search': 'Test Doc 3', 'colors_search': None,
-         'pattern_search': 'paisley'},
-        {'id': 4, 'title': 'Test Doc 4', 'colors': ['white'],
+        {'id': '0000003', 'title': 'Test Doc 3', 'colors': None,
+         'pattern': 'paisley', 'title_search': 'Test Doc 3',
+         'colors_search': None, 'pattern_search': 'paisley'},
+        {'id': '0000004', 'title': 'Test Doc 4', 'colors': ['white'],
          'pattern': 'checkered', 'title_search': 'Test  _ccc_ Doc 4',
          'colors_search': ['_ddd_'], 'pattern_search': 'checkered'},
-        {'id': 5, 'title': 'Test Doc 5', 'colors': ['grey', 'purple', 'black'],
-         'pattern': 'plaid', 'title_search': 'Test Doc 5',
+        {'id': '0000005', 'title': 'Test Doc 5',
+         'colors': ['grey', 'purple', 'black'], 'pattern': 'plaid',
+         'title_search': 'Test Doc 5',
          'colors_search': ['grey', 'purple', 'black'],
          'pattern_search': 'plaid'}
     ]

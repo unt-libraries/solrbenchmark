@@ -89,19 +89,20 @@ class TestDocSet:
         self.facet_terms = facet_terms
         self._docs = docs
         self.total_docs = 0
-        self.facet_counts = {}
-        self.facet_counts_with_vals = {}
+        self._facet_counts = {}
+        self._facet_counts_with_vals = {}
         self._facet_val_groups = {}
 
     @property
     def docs(self):
         for doc in self._docs:
-            yield doc
             self._update_tallies(doc)
-        self._finalize_tallies()
+            yield doc
 
     def _update_tallies(self, doc):
         self.total_docs += 1
+        self._facet_counts = {}
+        self._facet_counts_with_vals = {}
         for fname in self.facet_terms.keys():
             raw = doc.get(fname) or []
             vals = [raw] if not isinstance(raw, (list, tuple)) else raw
@@ -110,13 +111,25 @@ class TestDocSet:
                 fval_group[val] = fval_group.get(val, 0) + 1
                 self._facet_val_groups[fname] = fval_group
 
-    def _finalize_tallies(self):
+    def _calculate_facet_counts(self):
         for fname in self.facet_terms.keys():
             fval_group = self._facet_val_groups.get(fname, {})
             counts = sorted(list(fval_group.items()), key=lambda x: x[1],
                             reverse=True)
-            self.facet_counts_with_vals[fname] = counts
-            self.facet_counts[fname] = [i[1] for i in counts]
+            self._facet_counts_with_vals[fname] = counts
+            self._facet_counts[fname] = [i[1] for i in counts]
+
+    @property
+    def facet_counts(self):
+        if not self._facet_counts:
+            self._calculate_facet_counts()
+        return self._facet_counts
+
+    @property
+    def facet_counts_with_vals(self):
+        if not self._facet_counts_with_vals:
+            self._calculate_facet_counts()
+        return self._facet_counts_with_vals
 
     @classmethod
     def from_schema(cls, schema, fileset=None):
