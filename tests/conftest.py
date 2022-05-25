@@ -7,7 +7,7 @@ from solrfixtures.emitters.fixed import Iterative, Sequential, Static
 from solrfixtures.emitters.fromfields import CopyFields
 from solrfixtures.profile import Field
 
-from solrbenchmark import schema
+from solrbenchmark import schema, runner
 
 
 _from_dotenv = dotenv_values('.env')
@@ -34,7 +34,7 @@ LETTERS = 'abcdefghijklmnopqrstuvwxyz'
 
 @pytest.fixture(scope='function')
 def solrconn():
-    """Pytest fixture that yields a connection to the Solr test core.
+    """Fixture: yields a connection to the Solr test core.
 
     This also issues a "delete" command after each test runs to ensure
     a clean slate for the next test.
@@ -166,3 +166,20 @@ def simple_schema():
                            overwrite_chance, seed)
         return myschema
     return _simple_schema
+
+
+@pytest.fixture
+def metadata():
+    """Fixture: returns a throw-away BenchmarkTestMetadata object."""
+    return runner.BenchmarkTestMetadata(
+        solr_version='8.11.1',
+        solr_caches='default',
+        solr_conf='default barebones test conf',
+        solr_schema='test_core schema',
+        os='docker-solr',
+        os_memory='2GB',
+        jvm_memory='512MB max',
+        jvm_settings='default',
+        collection_size='1MB',
+        notes='this is just for illustration purposes'
+    )

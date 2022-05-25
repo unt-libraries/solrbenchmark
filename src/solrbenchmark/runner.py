@@ -1,31 +1,34 @@
 """Contains classes for running benchmarking tests and compiling stats."""
+from dataclasses import asdict, dataclass
 import itertools
+import re
+from typing import Optional
 
 import ujson
 
-from . import timer
+
+@dataclass
+class BenchmarkTestMetadata:
+    """Class for storing metadata about a benchmark test."""
+
+    solr_version: Optional[str] = None
+    solr_caches: Optional[str] = None
+    solr_conf: Optional[str] = None
+    solr_schema: Optional[str] = None
+    os: Optional[str] = None
+    os_memory: Optional[str] = None
+    jvm_memory: Optional[str] = None
+    jvm_settings: Optional[str] = None
+    collection_size: Optional[str] = None
+    notes: Optional[str] = None
 
 
-class BenchmarkTestLog(object):
+class BenchmarkTestLog:
     """Class for tracking and compiling benchmarking stats."""
 
-    def __init__(self, test_id, solr_version=None, solr_caches=None,
-                 solr_conf=None, solr_schema=None, os=None, os_memory=None,
-                 jvm_memory=None, jvm_settings=None, collection_size=None,
-                 notes=None):
+    def __init__(self, test_id, metadata):
         self.test_id = test_id
-        self.metadata = {
-            'solr_version': solr_version,
-            'solr_caches': solr_caches,
-            'solr_conf': solr_conf,
-            'solr_schema': solr_schema,
-            'os': os,
-            'os_memory': os_memory,
-            'jvm_memory': jvm_memory,
-            'jvm_settings': jvm_settings,
-            'collection_size': collection_size,
-            'notes': notes
-        }
+        self.metadata = metadata
         self.reset()
 
     def reset(self):
@@ -34,7 +37,8 @@ class BenchmarkTestLog(object):
 
     def save_to_json_file(self, filepath):
         json_str = ujson.dumps({
-            'metadata': self.metadata,
+            'test_id': self.test_id,
+            'metadata': asdict(self.metadata),
             'indexing_stats': self.indexing_stats,
             'search_stats': self.search_stats
         })
@@ -46,49 +50,117 @@ class BenchmarkTestLog(object):
         with open(filepath) as f:
             json_str = f.read()
         data = ujson.loads(json_str)
-        test_log = cls(data['test_id'], **data['metadata'])
+        metadata = BenchmarkTestMetadata(**data['metadata'])
+        test_log = cls(data['test_id'], metadata)
         test_log.indexing_stats = data['indexing_stats']
         test_log.search_stats = data['search_stats']
         return test_log
 
-    def compile_report(self, aggregate_groups):
+    def compile_report(self, aggregate_search_groups={}):
         i_stats = self.indexing_stats
         s_stats = self.search_stats
-        unit = 'avg secs per {} docs'.format(i_stats['batch_size'])
+        i_avg_label = f"avg per {i_stats['batch_size']} docs"
         data = {
-            'ADD total secs': i_stats.get('indexing_total_secs'),
-            'ADD {}'.format(unit): i_stats.get('indexing_average_secs'),
-            'COMMIT total secs': i_stats.get('commit_total_secs'),
-            'COMMIT {}'.format(unit): i_stats.get('commit_average_secs'),
-            'INDEXING total secs': i_stats.get('total_secs'),
-            'INDEXING {}'.format(unit): i_stats.get('average_secs')
+            'ADD': {
+                'total': (i_stats.get('indexing_total_secs'), 's'),
+                i_avg_label: (i_stats.get('indexing_average_secs'), 's')
+            },
+            'COMMIT': {
+                'total': (i_stats.get('commit_total_secs'), 's'),
+                i_avg_label: (i_stats.get('commit_average_secs'), 's')
+            },
+            'INDEXING': {
+                'total': (i_stats.get('total_secs'), 's'),
+                i_avg_label: (i_stats.get('average_secs'), 's')
+            },
+            'SEARCH': {
+                'BLANK': {},
+                'ALL TERMS': {}
+            }
         }
 
         for label, details in s_stats.items():
-            if details['blank_included']:
-                key = 'SEARCH - BLANK - {} - avg ms'.format(label)
-                data[key] = details['term_results'][0]['qtime_ms']
-            data['SEARCH - {} - avg ms'.format(label)] = details['avg_qtime_ms']
+            term_results = details['term_results']
+            blanks = (tr for tr in term_results if tr['term'] == '')
+            blank = next(blanks, None)
+            if blank:
+                blank_qtime = blank['qtime_ms']
+                data['SEARCH']['BLANK'][label] = (blank_qtime, 'ms')
+            allterms_qtime = details['avg_qtime_ms']
+            data['SEARCH']['ALL TERMS'][label] = (allterms_qtime, 'ms')
 
-        for group_label, labels in aggregate_groups.items():
+        for grp_label, labels in aggregate_search_groups.items():
             blank_tally = []
             search_tally = []
             for label in labels:
                 details = s_stats[label]
-                if details['blank_included']:
-                    blank_tally.append(details['term_results'][0]['qtime_ms'])
+                term_results = details['term_results']
+                blanks = (tr for tr in term_results if tr['term'] == '')
+                blank = next(blanks, None)
+                if blank:
+                    blank_tally.append(blank['qtime_ms'])
                 search_tally.extend(
                     [tr['qtime_ms'] for tr in details['term_results']]
                 )
             if blank_tally:
-                key = 'SEARCH BLANK - {} - avg ms'.format(group_label)
-                data[key] = round(sum(blank_tally) / len(blank_tally), 4)
-            key = 'SEARCH - {} - avg ms'.format(group_label)
-            data[key] = round(sum(search_tally) / len(search_tally), 4)
+                grp_blank_qt = round(sum(blank_tally) / len(blank_tally), 4)
+                data['SEARCH']['BLANK'][grp_label] = (grp_blank_qt, 'ms')
+            grp_allterms_qt = round(sum(search_tally) / len(search_tally), 4)
+            data['SEARCH']['ALL TERMS'][grp_label] = (grp_allterms_qt, 'ms')
         return data
 
 
-class BenchmarkTestRunner(object):
+def _scrape_qtime(solr_response):
+    try:
+        qtime = re.search(r'QTime\D+(\d+)', solr_response).group(1)
+    except AttributeError:
+        return
+    return int(qtime) * 0.001
+
+
+def _compile_timings_stats(timings):
+    stats = {'timings': {}, 'totals': {}, 'averages': {}}
+    default_time = 0
+    for event, time in timings:
+        stats['timings'][event] = stats['timings'].get(event, []) + [time]
+        total = stats['totals'].get(event, default_time) + time
+        stats['totals'][event] = round(total, 6)
+    for event, event_timings in stats['timings'].items():
+        avg = stats['totals'][event] / len(event_timings)
+        stats['averages'][event] = round(avg, 6)
+    return stats
+
+
+def _compile_indexing_results(timings, ndocs, batch_size):
+    tstats = _compile_timings_stats(timings)
+    timings = tstats['timings']
+    totals = tstats['totals']
+    avgs = tstats['averages']
+    nbatches = len(timings['indexing'])
+    return {
+        'batch_size': batch_size,
+        'total_docs': ndocs,
+        'indexing_timings_secs': timings['indexing'],
+        'indexing_total_secs': totals['indexing'],
+        'indexing_average_secs': avgs['indexing'],
+        'commit_timings_secs': timings['committing'],
+        'commit_total_secs': totals['committing'],
+        'commit_average_secs': avgs['committing'],
+        'total_secs': totals['indexing'] + totals['committing'],
+        'average_secs': (totals['indexing'] + totals['committing']) / nbatches
+    }
+
+
+def _compile_search_results(term_results):
+    qtime = sum([r['qtime_ms'] for r in term_results])
+    return {
+        'total_qtime_ms': round(qtime, 4),
+        'avg_qtime_ms': round(qtime / len(term_results), 4),
+        'term_results': term_results,
+    }
+
+
+class BenchmarkTestRunner:
     """Class for running Solr benchmark tests."""
 
     def __init__(self, test_docset, test_log, conn):
@@ -96,103 +168,65 @@ class BenchmarkTestRunner(object):
         self.test_log = test_log
         self.conn = conn
 
-    def index_docs(self, batch_size=1000, verbose=True, track_commits=True,
-                   index_timer=None):
-        index_timer = index_timer or timer.Timer()
-        i = 1
-        while True:
+    def index_docs(self, batch_size=1000, verbose=True):
+        timings = []
+        for i in itertools.count(0, batch_size):
             batch = list(itertools.islice(self.test_docset.docs, batch_size))
             if batch:
                 if verbose:
                     print(f'Indexing {i} to {i + batch_size - 1}.')
-                index_timer.start('indexing')
-                self.conn.add(batch, commit=False)
-                index_timer.end('indexing')
+                index_response = self.conn.add(batch, commit=False)
+                index_qtime = _scrape_qtime(index_response)
+                timings.append(('indexing', index_qtime))
                 if verbose:
                     print('Committing...')
-                if track_commits:
-                    index_timer.start('committing')
-                    self.conn.commit()
-                    index_timer.end('committing')
-                else:
-                    self.conn.commit()
-                i += batch_size
+                commit_response = self.conn.commit()
+                commit_qtime = _scrape_qtime(commit_response)
+                timings.append(('committing', commit_qtime))
             else:
                 break
         total = self.test_docset.total_docs
-        stats = self.compile_indexing_results(index_timer, total, batch_size)
+        stats = _compile_indexing_results(timings, total, batch_size)
         self.test_log.indexing_stats = stats
         return stats
 
-    def compile_indexing_results(self, index_timer, ndocs, batch_size):
-        tstats = index_timer.compile_statistics(convert_to_seconds=True)
-        timings = tstats['event_timings']
-        totals = tstats['event_totals']
-        avgs = tstats['event_averages']
-        indexing_stats = {
-            'batch_size': batch_size,
-            'total_docs': ndocs,
-            'indexing_timings_secs': timings['indexing'],
-            'indexing_total_secs': totals['indexing'],
-            'indexing_average_secs': avgs['indexing'],
-            'total_secs': totals['indexing'],
-            'average_secs': avgs['indexing']
-        }
-        if 'committing' in timings:
-            nb = len(timings['indexing'])
-            avg = ((avgs['indexing'] * nb) + (avgs['committing'] * nb)) / nb
-            total = totals['indexing'] + totals['committing']
-            indexing_stats.update({
-                'commit_timings_secs': timings['committing'],
-                'commit_total_secs': totals['committing'],
-                'commit_average_secs': avgs['committing'],
-                'total_secs': index_timer.round(total),
-                'average_secs': index_timer.round(avg)
-            })
-        return indexing_stats
-
-    def search(self, q, kwargs, repeat_n=0, ignore_n=0):
-        search_timer = timer.Timer()
+    def search(self, q, kwargs, rep_n=1, ignore_n=0):
+        q = q or '*:*'
+        timings = []
         hits = None
-        for i in range(0, repeat_n + 1):
+        for i in range(rep_n):
             if i < ignore_n:
-                self.conn.search(q=q, **kwargs)
-            else:
-                search_timer.start('search')
                 result = self.conn.search(q=q, **kwargs)
-                search_timer.end('search')
+            else:
+                result = self.conn.search(q=q, **kwargs)
                 hits = hits or result.hits
-        tstats = search_timer.compile_statistics(convert_to_seconds=True)
+                timings.append(('search', result.qtime))
+        tstats = _compile_timings_stats(timings)
+        # The canonical query time for this search is the average of
+        # the repetitions, excluding the ones we ignored.
+        qtime_ms = round(tstats['averages'].get('search', 0), 4)
         return {
+            'result': result,
             'hits': hits,
-            'avg_qtime_ms': round(tstats['event_averages']['search'] * 1000, 4)
+            'qtime_ms': qtime_ms
         }
 
-    def run_searches(self, terms, label, query_kwargs, repeat_n=0, ignore_n=0,
-                     verbose=True):
+    def run_searches(self, terms, label, query_kwargs=None, rep_n=0,
+                     ignore_n=0, verbose=True):
         if verbose:
-            print(f"{label} ({len(terms)} searches) ", end='', flush=True)
+            print(f'{label} ({len(terms)} searches) ', end='', flush=True)
         term_results = []
         for term in terms:
-            result = self.search(term, kwargs, repeat_n, ignore_n)
+            result = self.search(term, query_kwargs or {}, rep_n, ignore_n)
             term_results.append({
                 'term': term,
                 'hits': result['hits'],
-                'qtime_ms': result['avg_qtime_ms']
+                'qtime_ms': result['qtime_ms']
             })
             if verbose:
                 print('.', end='', flush=True)
         if verbose:
             print(flush=True)
-        stats = self.compile_search_results(term_results, '' in terms)
+        stats = _compile_search_results(term_results)
         self.test_log.search_stats[label] = stats
         return stats
-
-    def compile_search_results(self, term_results, blank_included):
-        qtime = sum([r['qtime_ms'] for r in term_results])
-        return {
-            'total_qtime_ms': round(qtime, 4),
-            'avg_qtime_ms': round(qtime / len(term_results), 4),
-            'term_results': term_results,
-            'blank_included': blank_included
-        }
