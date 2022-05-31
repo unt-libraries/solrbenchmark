@@ -8,14 +8,14 @@ from solrbenchmark import docs, runner
 # Fixtures used here are defined in `conftest.py`:
 #    simple_schema
 #    solrconn
-#    metadata
+#    configdata
 
 
 # Tests
 
 # I've isolated this into a separate test module just because it takes
 # several seconds to run.
-def test_runner_integration(metadata, simple_schema, solrconn):
+def test_runner_integration(configdata, simple_schema, solrconn):
     # This is an integration test that tests and illustrates the steps
     # for running benchmark tests from start to finish. Much of the
     # work is done in fixtures, so this is mostly a high-level view.
@@ -94,18 +94,18 @@ def test_runner_integration(metadata, simple_schema, solrconn):
         ],
     }
 
-    # THIRD: Set up your test log (runner.BenchmarkTestLog). The most
-    # important part of this that's glossed over here is configuring
-    # the metadata (runner.BenchmarkTestMetadata), which records all
-    # the various Solr / system parameters that are under test.
-    tlog = runner.BenchmarkTestLog('runner_integration_test', metadata)
+    # THIRD: Set up the system configuration data for your test. This
+    # uses a fixture so is glossed over here, but this records details
+    # about all the various Solr / system parameters that are under
+    # test.
+    # E.g.:
+    # configdata = runner.ConfigData('config-id', solr_version='8.11', ...)
 
-    # FOURTH: Instantiate a test docset (docs.TestDocSet) and runner
-    # (runner.BenchmarkTestRunner). In reality you'd probably also want
-    # to configure a fileset (docs.FileSet), where you'd stream your
-    # test docset to disk so you could reproduce the tests later.
-    tdocset = docs.TestDocSet.from_schema(myschema, fileset=None)
-    trunner = runner.BenchmarkTestRunner(tdocset, tlog, solrconn)
+    # FOURTH: Instantiate a docset (docs.DocSet) and runner
+    # (runner.BenchmarkRunner). In reality you'd probably want to save
+    # your test docset to disk so you could reproduce the tests later.
+    tdocset = docs.DocSet.from_schema('test-docset', myschema, savepath=None)
+    trunner = runner.BenchmarkRunner(tdocset, configdata, solrconn)
 
     # FIFTH: Run the tests. Note how we're using the `search_run_defs`
     # to define and then trigger each of our runs. The labeling there
@@ -117,8 +117,8 @@ def test_runner_integration(metadata, simple_schema, solrconn):
     }
 
     # SIXTH: Compile the final report. In reality, you may also want to
-    # save the log to disk so you reload it later for further analysis.
-    report = tlog.compile_report(search_groups)
+    # save the log to disk to reload it later for further analysis.
+    report = trunner.log.compile_report(search_groups)
 
     # At this point you would want to change your system or Solr
     # configuration (depending on what you're testing), modify the test
@@ -132,8 +132,8 @@ def test_runner_integration(metadata, simple_schema, solrconn):
 
     # This last section is for our assertions about stats / reports
     # that were output, to make sure we're getting sane values.
-    assert i_stats == tlog.indexing_stats
-    assert s_stats == tlog.search_stats
+    assert i_stats == trunner.log.indexing_stats
+    assert s_stats == trunner.log.search_stats
     assert list(report.keys()) == ['ADD', 'COMMIT', 'INDEXING', 'SEARCH']
     search_labels = list(search_run_defs.keys()) + list(search_groups.keys())
     assert list(report['SEARCH']['BLANK'].keys()) == search_labels

@@ -169,9 +169,10 @@ def simple_schema():
 
 
 @pytest.fixture
-def metadata():
-    """Fixture: returns a throw-away BenchmarkTestMetadata object."""
-    return runner.BenchmarkTestMetadata(
+def configdata():
+    """Fixture: returns a throw-away runner.ConfigData object."""
+    return runner.ConfigData(
+        config_id='test-config',
         solr_version='8.11.1',
         solr_caches='default',
         solr_conf='default barebones test conf',

@@ -1,6 +1,6 @@
 """Contains classes for running benchmarking tests and compiling stats."""
-from dataclasses import asdict, dataclass
-import itertools
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
 import re
 from typing import Optional
 
@@ -8,9 +8,10 @@ import ujson
 
 
 @dataclass
-class BenchmarkTestMetadata:
-    """Class for storing metadata about a benchmark test."""
+class ConfigData:
+    """Class for storing info about a configuration under test."""
 
+    config_id: str
     solr_version: Optional[str] = None
     solr_caches: Optional[str] = None
     solr_conf: Optional[str] = None
@@ -22,39 +23,62 @@ class BenchmarkTestMetadata:
     collection_size: Optional[str] = None
     notes: Optional[str] = None
 
+    def derive(self, config_id, **kwargs):
+        """Base a new ConfigData object on this object.
 
-class BenchmarkTestLog:
+        Values are copied to the new object unless overridden in a
+        kwarg. The only required new value is a new config_id.
+        """
+        new_obj = replace(self)
+        new_obj.config_id = config_id
+        for arg, val in kwargs.items():
+            setattr(new_obj, arg, val)
+        return new_obj
+
+
+def compose_result_json_filepath(basepath, docset_id, config_id):
+    """Get the filepath for a result file from a docset & config id."""
+    return Path(basepath) / f'{docset_id}--{config_id}_result.json'
+
+
+class BenchmarkLog:
     """Class for tracking and compiling benchmarking stats."""
 
-    def __init__(self, test_id, metadata):
-        self.test_id = test_id
-        self.metadata = metadata
-        self.reset()
-
-    def reset(self):
+    def __init__(self, docset_id, configdata):
+        self.docset_id = docset_id
+        self.configdata = configdata
         self.indexing_stats = {}
         self.search_stats = {}
+        self._result_filepath = None
 
-    def save_to_json_file(self, filepath):
+    @property
+    def result_filepath(self):
+        return self._result_filepath
+
+    def save_to_json_file(self, basepath):
+        self._result_filepath = compose_result_json_filepath(
+            basepath, self.docset_id, self.configdata.config_id
+        )
         json_str = ujson.dumps({
-            'test_id': self.test_id,
-            'metadata': asdict(self.metadata),
+            'docset_id': self.docset_id,
+            'configdata': asdict(self.configdata),
             'indexing_stats': self.indexing_stats,
             'search_stats': self.search_stats
         })
-        with open(filepath, 'w') as f:
+        with open(self._result_filepath, 'w') as f:
             f.write(json_str)
+        return self._result_filepath
 
     @classmethod
     def load_from_json_file(cls, filepath):
         with open(filepath) as f:
             json_str = f.read()
         data = ujson.loads(json_str)
-        metadata = BenchmarkTestMetadata(**data['metadata'])
-        test_log = cls(data['test_id'], metadata)
-        test_log.indexing_stats = data['indexing_stats']
-        test_log.search_stats = data['search_stats']
-        return test_log
+        configdata = ConfigData(**data['configdata'])
+        bmark_log = cls(data['docset_id'], configdata)
+        bmark_log.indexing_stats = data['indexing_stats']
+        bmark_log.search_stats = data['search_stats']
+        return bmark_log
 
     def compile_report(self, aggregate_search_groups={}):
         i_stats = self.indexing_stats
@@ -160,34 +184,42 @@ def _compile_search_results(term_results):
     }
 
 
-class BenchmarkTestRunner:
+class BenchmarkRunner:
     """Class for running Solr benchmark tests."""
 
-    def __init__(self, test_docset, test_log, conn):
-        self.test_docset = test_docset
-        self.test_log = test_log
+    def __init__(self, docset, configdata, conn):
+        self.docset = docset
+        self.log = BenchmarkLog(docset.id, configdata)
         self.conn = conn
 
     def index_docs(self, batch_size=1000, verbose=True):
+        def _do(batch, i):
+            timings = []
+            if verbose:
+                print(f'Indexing {i + 1 - batch_size} to {i}.')
+            index_response = self.conn.add(batch, commit=False)
+            index_qtime = _scrape_qtime(index_response)
+            timings.append(('indexing', index_qtime))
+            if verbose:
+                print('Committing...')
+            commit_response = self.conn.commit()
+            commit_qtime = _scrape_qtime(commit_response)
+            timings.append(('committing', commit_qtime))
+            return timings
+
         timings = []
-        for i in itertools.count(0, batch_size):
-            batch = list(itertools.islice(self.test_docset.docs, batch_size))
-            if batch:
-                if verbose:
-                    print(f'Indexing {i} to {i + batch_size - 1}.')
-                index_response = self.conn.add(batch, commit=False)
-                index_qtime = _scrape_qtime(index_response)
-                timings.append(('indexing', index_qtime))
-                if verbose:
-                    print('Committing...')
-                commit_response = self.conn.commit()
-                commit_qtime = _scrape_qtime(commit_response)
-                timings.append(('committing', commit_qtime))
-            else:
-                break
-        total = self.test_docset.total_docs
+        batch = []
+        for i, doc in enumerate(self.docset.docs):
+            batch.append(doc)
+            if (i + 1) % batch_size == 0:
+                timings.extend(_do(batch, i))
+                batch = []
+        if batch:
+            timings.extend(_do(batch, i))
+
+        total = self.docset.total_docs
         stats = _compile_indexing_results(timings, total, batch_size)
-        self.test_log.indexing_stats = stats
+        self.log.indexing_stats = stats
         return stats
 
     def search(self, q, kwargs, rep_n=1, ignore_n=0):
@@ -228,5 +260,5 @@ class BenchmarkTestRunner:
         if verbose:
             print(flush=True)
         stats = _compile_search_results(term_results)
-        self.test_log.search_stats[label] = stats
+        self.log.search_stats[label] = stats
         return stats

@@ -1,4 +1,5 @@
 """Contains tests for `runner` module."""
+import dataclasses
 from unittest.mock import call, Mock
 
 import pytest
@@ -33,7 +34,7 @@ def new_mockconn():
 def indexstats_sanity_check():
     """Fixture: returns a func for sanity checking test indexing stats.
 
-    (I.e., from runner.BenchmarkTestRunner.)
+    (I.e., from runner.BenchmarkRunner.)
     """
     def _indexstats_sanity_check(stats, batch_size, num_docs):
         uneven_batches = num_docs % batch_size
@@ -120,33 +121,43 @@ def test_doc_data():
 # Additional fixtures defined in `conftest.py` are used:
 #    simple_schema
 #    solrconn
-#    metadata
+#    configdata
 
 
 # Tests
 
-def test_benchmarktestlog_saveto_and_loadfrom_jsonfile(metadata, tmpdir):
-    test_id = 'testlog_saveto_and_loadfrom_json_test'
+def test_configdata_derive(configdata):
+    new_configdata = configdata.derive('new-configset', notes='New configset')
+    assert new_configdata.config_id == 'new-configset'
+    assert new_configdata.config_id != configdata.config_id
+    assert new_configdata.notes == 'New configset'
+    assert new_configdata.notes != configdata.notes
+    for field_name, val in dataclasses.asdict(configdata).items():
+        if field_name not in ('config_id', 'notes'):
+            assert getattr(new_configdata, field_name) == val
+
+
+def test_benchmarklog_saveto_and_loadfrom_jsonfile(configdata, tmpdir):
+    docset_id = 'test-docset'
     istats = {'indexing': ['test']}
     sstats = {'search': ['test']}
-    tlog = runner.BenchmarkTestLog(test_id, metadata)
+    tlog = runner.BenchmarkLog(docset_id, configdata)
     tlog.indexing_stats = istats
     tlog.search_stats = sstats
-    filepath = tmpdir / 'testlog.json'
-    assert not filepath.exists()
-    tlog.save_to_json_file(filepath)
+    filepath = tlog.save_to_json_file(tmpdir)
     assert filepath.exists()
+    assert filepath == tlog.result_filepath
     del(tlog)
 
-    new_tlog = runner.BenchmarkTestLog.load_from_json_file(filepath)
-    assert new_tlog.metadata == metadata
-    assert new_tlog.test_id == test_id
+    new_tlog = runner.BenchmarkLog.load_from_json_file(filepath)
+    assert new_tlog.configdata == configdata
+    assert new_tlog.docset_id == docset_id
     assert new_tlog.indexing_stats == istats
     assert new_tlog.search_stats == sstats
 
 
-def test_benchmarktestlog_compilereport(metadata):
-    tlog = runner.BenchmarkTestLog('testlog_compilereport_test', metadata)
+def test_benchmarklog_compilereport(configdata):
+    tlog = runner.BenchmarkLog('test-docset', configdata)
     tlog.indexing_stats = {
         'batch_size': 1000,
         'total_docs': 5000,
@@ -284,21 +295,21 @@ def test_benchmarktestlog_compilereport(metadata):
     assert tlog.compile_report(aggregate_search_groups) == expected_report
 
 
-def test_benchmarktestrunner_indexdocs(metadata, simple_schema, solrconn,
-                                       indexstats_sanity_check,
-                                       assert_index_matches_docslist):
+def test_benchmarkrunner_indexdocs(configdata, simple_schema, solrconn,
+                                   indexstats_sanity_check,
+                                   assert_index_matches_docslist):
     assert_index_matches_docslist([], solrconn)
     batch_size = 10
     num_docs = 50
     myschema = simple_schema(num_docs, 0.5, 0.5, 999)
     docslist = [myschema() for _ in range(myschema.num_docs)]
     myschema.reset_fields()
-    tdocset = docs.TestDocSet.from_schema(myschema)
-    tlog = runner.BenchmarkTestLog('indexdocs_test', metadata)
-    trunner = runner.BenchmarkTestRunner(tdocset, tlog, solrconn)
-    stats = trunner.index_docs(batch_size=batch_size, verbose=False)
+    tdocset = docs.DocSet.from_schema('test-docset', myschema)
+    tlog = runner.BenchmarkLog('indexdocs_test', configdata)
+    trunner = runner.BenchmarkRunner(tdocset, tlog, solrconn)
+    stats = trunner.index_docs(batch_size=batch_size, verbose=True)
     indexstats_sanity_check(stats, batch_size, myschema.num_docs)
-    assert trunner.test_log.indexing_stats == stats
+    assert trunner.log.indexing_stats == stats
     assert_index_matches_docslist(docslist, solrconn)
 
 
@@ -313,16 +324,15 @@ def test_benchmarktestrunner_indexdocs(metadata, simple_schema, solrconn,
     (2, 0, [1000, 5, 3, 1, 20], 502.5),
     (5, 10, [1000, 5, 3, 1, 20], 0),
 ])
-def test_benchmarktestrunner_search_controls(rep_n, ignore_n, qtimes,
-                                             exp_qtime, metadata,
-                                             new_mockconn):
+def test_benchmarkrunner_search_controls(rep_n, ignore_n, qtimes, exp_qtime,
+                                         configdata, new_mockconn):
     # With the rep_n argument, the runner should do/repeat the search N
     # times; with ignore_n, the runner should ignore the first N
     # searches. It should report the average qtime in ms from the ones
     # it does not ignore.
     mockconn = new_mockconn({'test': (10, qtimes)})
-    tlog = runner.BenchmarkTestLog('searchdocs_controls_test', metadata)
-    trunner = runner.BenchmarkTestRunner(None, tlog, mockconn)
+    mockdocset = Mock(id='mock-docset')
+    trunner = runner.BenchmarkRunner(mockdocset, configdata, mockconn)
     info = trunner.search('test', {}, rep_n, ignore_n)
     assert info['qtime_ms'] == exp_qtime
     assert mockconn.search.call_count == rep_n
@@ -339,10 +349,10 @@ def test_benchmarktestrunner_search_controls(rep_n, ignore_n, qtimes,
     ('_eee_', {'fq': 'colors:brown'}, 3, ['4', '6', '9']),
     ('_eee_', {'fq': 'colors:green AND colors:brown'}, 1, ['4']),
 ])
-def test_benchmarktestrunner_search_result(q, kwargs, exp_hits, exp_ids,
-                                           metadata, test_doc_data, solrconn):
-    tlog = runner.BenchmarkTestLog('searchdocs_test', metadata)
-    trunner = runner.BenchmarkTestRunner(None, tlog, solrconn)
+def test_benchmarkrunner_search_result(q, kwargs, exp_hits, exp_ids,
+                                       configdata, test_doc_data, solrconn):
+    mockdocset = Mock(id='mock-docset')
+    trunner = runner.BenchmarkRunner(mockdocset, configdata, solrconn)
     solrconn.add(test_doc_data, commit=True)
     info = trunner.search(q, kwargs)
     result_ids = [r['id'] for r in info['result']]
@@ -371,18 +381,18 @@ def test_benchmarktestrunner_search_result(q, kwargs, exp_hits, exp_ids,
                        {'term': 'two', 'hits': 150, 'qtime_ms': 366.0}]})
 
 ])
-def test_benchmarktestrunner_runsearches(terminfo, qkwargs, rep_n, ignore_n,
-                                         exp_stats, new_mockconn, metadata):
+def test_benchmarkrunner_runsearches(terminfo, qkwargs, rep_n, ignore_n,
+                                     exp_stats, new_mockconn, configdata):
     # The `run_searches` method should call `search` for each term in
     # `terms`, using the given query_kwargs, rep_n, and ignore_n args.
     # It should result in the expected stats.
     mockconn = new_mockconn(terminfo)
-    tlog = runner.BenchmarkTestLog('runsearches_test', metadata)
-    trunner = runner.BenchmarkTestRunner(None, tlog, mockconn)
+    mockdocset = Mock(id='mock-docset')
+    trunner = runner.BenchmarkRunner(mockdocset, configdata, mockconn)
     stats = trunner.run_searches(terminfo.keys(), 'TEST', qkwargs, rep_n,
                                  ignore_n, verbose=False)
     assert stats == exp_stats
-    assert trunner.test_log.search_stats['TEST'] == stats
+    assert trunner.log.search_stats['TEST'] == stats
     mockconn.search.assert_has_calls(
         [call(q=q or '*:*', **qkwargs) for q in terminfo for _ in range(rep_n)]
     )

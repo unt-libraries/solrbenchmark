@@ -1,6 +1,6 @@
 # solrbenchmark
 
-Python tools for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and logging results.
+Python tools for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and reporting results.
 
 ## Installation
 
@@ -41,129 +41,240 @@ pip install -e "git+ssh://git@content.library.unt.edu/utilities/pypackages/solrb
 
 ## Usage
 
-The `solrbenchmark` package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project using an environment with access to some non-production Solr instance. (Tests in the `tests/` directory use Docker to run the Solr instance and `pysolr` for the Python interface, for example. What you use to run Solr depends on what you're testing for — Docker could work fine for doing comparisons using different JVM settings or having different amounts of memory allocated. Or if you want to benchmark a live setup you'll want a Solr instance that mirrors that environment.)
+The `solrbenchmark` package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project using an environment with access to the Solr instance(s) you want to use for testing. The `pysolr` package is included as a base dependency for this project — it's expected you'll use this as the Python interface to the Solr API, even though it isn't invoked in the project code.
 
-### Example
+(The `tests/test_runner*` tests provide a basic example using Docker to run a Solr instance. How you actually run Solr depends on what you're testing for — Docker could work fine for doing comparisons using different JVM settings or having different amounts of memory allocated. Or if you want to benchmark a live setup you'll want a Solr instance that mirrors that environment.)
+
+### Usage Example
 
 ```python
+import csv
+from pathlib import Path
+
 import pysolr
 
 from solrbenchmark import docs, schema, terms, runner
-from solrfixtures.emitters import choice, fixed, text
+from solrfixtures.emitters import choice, fixed, fromfield, text
 from solrfixtures.profile import Field
 
-from .config import solrconn
 
+# ****PLANNING & SETUP
 
-# ****SETUP
+# There's some planning you'll want to do up front: what configurations
+# do you want to test; how many documents do you need; do you need more
+# than one document set; what kinds of tests are you going to run; etc.
+#
+# Consider building your metadata (identifiers to ID test components
+# and configuration metadata) first. Obviously, you can change things
+# later, but this gives you something to work with.
+#
+# Let's say we want to run tests comparing Java heap max 410M versus
+# 820M versus 1230M.
+config_heap_mx410 = runner.ConfigData(
+    config_id='heap-mx410',
+    solr_version='8.11.1',
+    solr_caches='caching disabled',
+    solr_schema='myschema, using docValues for facets',
+    os='Docker on Windows WSL2/Ubuntu'
+    os_memory='16GB',
+    jvm_memory='-Xms52M -Xmx410M',
+    jvm_settings='...',
+    collection_size='500,000 docs @ 950mb',
+    notes='Testing the effect of Java max heap size.'
+)
+config_heap_mx820 = config_heap_mx410.derive(
+    'heap-mx820', jvm_memory='-Xms52M -Xmx820M'
+)
+config_heap_mx1230 = config_heap_mx410.derive(
+    'heap-mx1230', jvm_memory='-Xms52M -Xmx1230M'
+)
 
-# First, create a schema.
+# We'll just have one docset of 500,000 documents.
+docset_id = 'myschema-500000'
+
+# And we should go ahead and configure the location where we want to
+# store files.
+savepath = Path('/home/myuser/myschema_benchmarks/heap_tests/')
+
+# Now we create our BenchmarkSchema, which reflects our Solr fields.
+# (If you use dynamic fields heavily, you'll have to know what fields
+# are actually in your data and make a concrete schema that reflects
+# whatever you have.)
 myschema = schema.BenchmarkSchema(
     Field('id', ... ),
     Field('title_display', ... ),
-    SearchField('title_search', ... ),
-    FacetField('title_facet', ... ),
     Field('author_display', ... ),
-    SearchField('author_search', ... ),
-    FacetField('author_facet', ... ),
-    ...
+    # etc.
+)
+myschema.add_fields(
+    SearchField('title_search',
+                fromfield.CopyFields(myschema.fields['title_display'])),
+    FacetField('title_facet',
+                fromfield.CopyFields(myschema.fields['title_display'])),
+    SearchField('author_search',
+                fromfield.CopyFields(myschema.fields['author_display'])),
+    FacetField('author_facet',
+                fromfield.CopyFields(myschema.fields['author_display'])),
+    # etc.
 )
 
-# Generate a set of search terms and an emitter to emit them.
+# We generate a set of search terms and an emitter to emit them. We
+# want terms to be ~realistic-ish lengths, so we use a Choice emitter
+# with a poisson distribution to decide lengths, with 4-letter words
+# being most populous.
 alphabet = text.make_alphabet([(ord('a'), ord('z'))])
 word_em = text.Word(
     choice.poisson_choice(range(2, 11), mu=4),
     choice.Choice(alphabet)
 )
-term_em = terms.make_search_terms_and_emitter(word_em, num_vocab_words=50)
+term_em = terms.make_search_terms_and_emitter(word_em, vocab_size=50)
 
-# Prepare the schema for a test set of 500,000 documents.
-myschema.configure_search_term_injection(term_em)
-myschema.build_facet_values_for_docset(500000)
+# We configure the schema for a test set of 500,000 documents.
+myschema.configure(500000, term_em, term_doc_ratio=0.75, overwrite_chance=0.25)
 
-# Create your document set.
-# You have three choices here:
-# 1. Generate your document set from scratch; do NOT save to disk.
-docset = docs.TestDocSet.from_schema(myschema, 500000)
+# Next we set up the document set. We have three choices here:
+# 1. Generate it from scratch; do NOT save to disk.
+docset = docs.DocSet.from_schema(docset_id, myschema)
 
-# 2. OR, generate your document set from scratch and stream it to a
-#    file on your disk. Later you can recreate your document set from
-#    this file.
-fileset = docs.FileSet('/home/myuser/scratch/solrbenchmarking', 'mytest1')
-docset = docs.TestDocSet.from_schema(myschema, 500000, fileset)
+# 2. OR, generate it from scratch and stream it to a file. Later we can
+#    recreate the document set from that file.
+docset = docs.DocSet.from_schema(docset_id, myschema, savepath=savepath)
 
-# 3. OR, recreate a document set from a previously saved file.
-fileset = docs.FileSet('/home/myuser/scratch/solrbenchmarking', 'mytest1')
-docset = docs.TestDocSet.from_fileset(fileset)
+# 3. OR, recreate a document set from a previously saved session.
+docset = docs.DocSet.from_disk(docset_id, savepath)
 
-# Note: At this stage your documents don't yet exist in memory -- you
-# get them via the `dset.docs` generator, and they are either created,
+# Note: At this stage our documents don't yet exist in memory -- we get
+# them via the `dset.docs` generator, and they are either created,
 # created and saved to disk, or read from disk one at a time. Generally
 # this will happen as they are indexed.
 
-
-# ****BENCHMARK TESTS
-
-# Before running tests, set up a log object for tracking your tests,
-# recording metadata about what you're testing, and compiling stats, as
-# well as a test runner for running your tests.
-mylog = runner.BenchmarkTestLog(
-    'mytest1',
-    solr_version='8.11.1',
-    solr_caches='caching disabled',
-    solr_schema='my_test_schema, using docValues for facets',
-    os='Docker on Windows WSL2/Ubuntu'
-    os_memory='16gb',
-    jvm_memory='-Xms52M -Xmx410M',
-    jvm_settings='...',
-    collection_size='500,000 docs / 950mb',
-    notes='This is testing ...'
+# The last thing to do before running tests is to decide exactly what
+# searches we want to run that will fully test what we're trying to
+# test. We can submit specific sets of terms to search in addition to
+# any other args to send to Solr for each search run, so this is quite
+# flexible. You can set this up however you want, but my preferred
+# method is to create a data structure containing labels and parameters
+# (i.e. terms and kwargs) for each search run.
+terms_1word = [t for t in term_em.items if ' ' not in t]
+terms_2word = [t for t in term_em.items if len(t.split(' ') == 2)]
+title_facet_terms = myschema.fields['title_facet'].terms
+all_facet_args = {
+    'facet': 'true', 'facet.field': 'title_facet',
+    'facet.field': 'author_facet'
+}
+search_defs = (
+    ('1-word terms + no facets + no fq', terms_1word, {}),
+    ('2-word terms + no facets + no fq', terms_2word, {}),
+    ('1-word terms + all facets + no fq', terms_1word, ),
+    ('2-word terms + all facets + no fq', terms_2word, all_facet_args),
+    ('1-word terms + no facets + fq 1st title facet val', terms_1word, {
+        'fq': f'title_facet:"{title_facet_terms[0]}"'
+    }),
+    ('2-word terms + no facets + fq 1st title facet val', terms_2word, {
+        'fq': f'title_facet:"{title_facet_terms[0]}"'
+    }),
+    ('1-word terms + all facets + fq 1st title facet val', terms_1word,
+     dict(all_facet_args, **{
+        'fq': f'title_facet:"{title_facet_terms[0]}"'
+     )
+    }),
+    ('2-word terms + all facets + fq 1st title facet val', terms_2word,
+     dict(all_facet_args, **{
+        'facet': 'true', 'facet.field': 'title_facet',
+        'facet.field': 'author_facet'
+        'fq': f'title_facet:"{title_facet_terms[0]}"'
+     )
+    }),
+    # etc.
 )
-myrunner = runner.BenchmarkTestRunner(docset, mylog, solrconn)
-
-# Index your documents. (Indexing timings are recorded.) You can choose
-# a batch size and whether you want to keep track of commit timings, on
-# a per-batch basis.
-myrunner.index_docs(batch_size=1000, track_commits=True)
-
-# Run search query tests. You can choose which sets of terms to include
-# for which tests, how to label them, additional search args to use,
-# (e.g. facets, fq limits, etc.) whether to repeat each search and take
-# the average time, and whether to ignore the first N searches.
-1word_terms = [t for t in term_em.items if ' ' not in t]
-2word_terms = [t for t in term_em.items if len(t.split(' ') == 2)]
-3word_terms = [t for t in term_em.items if len(t.split(' ') == 3)]
-myrunner.run_searches(1word_terms, '1-word terms, no facets, no repeat')
-myrunner.run_searches(2word_terms, '2-word terms, no facets, no repeat')
-myrunner.run_searches(3word_terms, '3-word terms, no facets, no repeat')
+# We can also define some aggregate groupings of our searches, where we
+# want combined stats reported, later. All we need to do is map new
+# group labels to lists of search_def labels that belong to each group.
+aggregate_groups = {
+    'no facets GROUP': [d[0] for d in search_defs if '+ no facets ' in d[0]],
+    'all facets GROUP': [d[0] for d in search_defs if '+ all facets ' in d[0]],
+    '1-word terms GROUP': [d[0] for d in search_defs if d[0].startswith('1')],
+    '2-word terms GROUP': [d[0] for d in search_defs if d[0].startswith('2')],
+    # etc.
+}
 
 
-# ****REPORTING
+# ****RUNNING BENCHMARK TESTS & REPORTING
 
-# After you've run a set of tests, you can save the output to a json
-# file and compile a report, which returns all collected statistics as
-# data dictionary. When compiling a report, you supply sets of
-# aggregate groupings of the individual search tests you've run to
-# create combined stats for those groups of tests.
-myrunner.save_to_json_file('/home/myuser/scratch/mytest1_results.json')
-report_data = myrunner.compile_report({
-    '1-word terms': ['1-word terms, no facets, no repeat'],
-    '2-word terms': ['2-word terms, no facets, no repeat'],
-    '3-word terms': ['3-word terms, no facets, no repeat'],
-    'all searches without facets': [
-        '1-word terms, no facets, no repeat',
-        '2-word terms, no facets, no repeat',
-        '3-word terms, no facets, no repeat'
-    ]
-})
+# Ultimately we want to run three tests, one for each JVM heap size we
+# want to test. How we do this largely depends on how our Solr
+# instances are set up. If we're testing against one Solr instance,
+# then we need to make sure we run one test, clear out Solr, change the
+# heap size, restart Solr, and then run the next test. Although we
+# could probably automate this using Docker, let's just create a
+# function to run one test so we can do it manually.
 
-# From here e.g. saving your report data as a CSV or loading it into
-# any number of analysis tools should be trivial. You'll of course also
-# probably want to repeat your benchmark tests a number of times using
-# different Solr configurations so you can compare timings. Ultimately
-# what metadata you store in your log, how you store / organize your
-# saved data, and how you label your tests is all up to you. The goal
-# is to have reproducibility.
+def run_heap_test(solrconn, configdata, docset, search_defs):
+    # We'll make this interactive so it's at least partly automated.
+    print(f'STARTING {configdata.config_id} TESTS')
+    print('Please (re)configure and (re)start Solr now.')
+    input('(Press return when you are ready to run the test.)')
+    print('')
+
+    # We create a BenchmarkRunner object that will run our tests and
+    # track statistics for us.
+    testrunner = runner.BenchmarkRunner(docset, configdata, solrconn)
+
+    # Now we just index our docset (indexing timings are recorded) ...
+    print('Indexing documents.')
+    testrunner.index_docs(batch_size=1000, verbose=True)
+    
+    # ... and run the searches we've configured. Note the 'rep_n=5' and
+    # 'ignore_n=1' parameters. This tells it to search each term 5
+    # times in a row and ignore the qtime from the 1st. (The average of
+    # the remaining 4 search qtimes is the qtime for that term/search.)
+    print('Running searches.')
+    for label, termset, qkwargs in search_defs:
+        testrunner.run_searches(termset, label, rep_n=5, ignore_n=1,
+                                verbose=True)
+
+    # Generally we'll want to save the results of each test so we don't
+    # have to repeat the test later.
+    testrunner.log.save_to_json_file(docset.savepath)
+
+    # And we can probably go ahead and clear Solr, unless there's any
+    # additional looking / searching / testing we want to do before
+    # running the next test.
+    print('Cleaning up.')
+    solrconn.delete('*:*', commit=True)
+    print('Done.\n')
+    # Returning the test log object gives us access to all the recorded
+    # data.
+    return testrunner.log
+
+
+if __name__ == '__main__':
+    solrconn = pysolr.Solr(url='http://localhost:8983/solr/myschema_core')
+    print('Welcome to the benchmark test runner for Heap tests.\n')
+    log_410 = run_heap_test(solrconn, config_heap_mx410, docset, search_defs)
+    log_820 = run_heap_test(solrconn, config_heap_mx820, docset, search_defs)
+    log_1230 = run_heap_test(solrconn, config_heap_mx1230, docset, search_defs)
+
+    # The very last step is reporting. We can compile a final report
+    # for each test, which is a data dictionary containing e.g. average
+    # timings for indexing and searching, including whatever aggregate
+    # groups we decided we need. From there we can convert those to
+    # whatever format we want for analysis and comparison.
+    csv_rows = []
+    for tlog in (log_410, log_820, log_1230):
+        report = tlog.compile_report(aggregate_groups)
+        # This `report_to_csv` function doesn't exist; we'd have to
+        # create it. We'd also want a header row. Or we could use
+        # csv.DictWriter. How you do all of this just depends on what
+        # data you want in your final report and how you want it
+        # formatted.
+        csv_rows.append(report_to_csv(report))
+        # In addition, we can also get more detailed stats from each
+        # test log object -- tlog.indexing_stats and tlog.search_stats,
+        # if we want more detail than the compiled report provides.
+    with open(savepath / 'final_report.csv', 'w') as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerows(csv_rows)
 ```
 
 
