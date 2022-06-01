@@ -179,7 +179,7 @@ def configdata():
         solr_schema='test_core schema',
         os='docker-solr',
         os_memory='2GB',
-        jvm_memory='512MB max',
+        jvm_memory='-Xmx250M',
         jvm_settings='default',
         collection_size='1MB',
         notes='this is just for illustration purposes'

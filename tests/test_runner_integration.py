@@ -5,7 +5,9 @@ from solrbenchmark import docs, runner
 
 
 # Fixtures / test data
-# Fixtures used here are defined in `conftest.py`:
+# 
+# Tests below use built-in pytest fixture `tmpdir`. Other fixtures used
+# are defined in `conftest.py`:
 #    simple_schema
 #    solrconn
 #    configdata
@@ -13,12 +15,11 @@ from solrbenchmark import docs, runner
 
 # Tests
 
-# I've isolated this into a separate test module just because it takes
-# several seconds to run.
-def test_runner_integration(configdata, simple_schema, solrconn):
+def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     # This is an integration test that tests and illustrates the steps
-    # for running benchmark tests from start to finish. Much of the
-    # work is done in fixtures, so this is mostly a high-level view.
+    # for running benchmark tests from start to finish. Many of the
+    # specifics are hidden away in fixtures, so this is mostly a high-
+    # level view.
 
     # FIRST: Define and configure your schema (schema.BenchmarkSchema).
     myschema = simple_schema(10000, 1.0, 0.5, None)
@@ -94,57 +95,93 @@ def test_runner_integration(configdata, simple_schema, solrconn):
         ],
     }
 
-    # THIRD: Set up the system configuration data for your test. This
-    # uses a fixture so is glossed over here, but this records details
-    # about all the various Solr / system parameters that are under
-    # test.
-    # E.g.:
-    # configdata = runner.ConfigData('config-id', solr_version='8.11', ...)
+    # THIRD: Set up system configuration data for your tests. Here we
+    # use a fixture, so it's a bit glossed over, but this is a data
+    # structure where you record details about all the various Solr /
+    # system parameters that are under test. E.g.:
+    # configdata = runner.ConfigData(
+    #     config_id='250M heap',
+    #     solr_version='8.11',
+    #     jvm_memory='-Xmx250M',
+    #     ...
+    # )
 
-    # FOURTH: Instantiate a docset (docs.DocSet) and runner
-    # (runner.BenchmarkRunner). In reality you'd probably want to save
-    # your test docset to disk so you could reproduce the tests later.
-    tdocset = docs.DocSet.from_schema('test-docset', myschema, savepath=None)
+    # If you're running multiple tests to compare different setups,
+    # you'll want multiple sets of configuration. Ideally you'll only
+    # be changing one aspect of the configuration per test, so you can
+    # easily just derive a new configdata instance from the old one and
+    # override the setting you're testing.
+    configdata2 = configdata.derive('500M heap', jvm_memory='-Xmx500')
+
+    # FOURTH: Instantiate a docset (docs.DocSet). We also provide a
+    # path to save our test docset to disk so we can run multiple
+    # tests seamlessly.
+    tdocset = docs.DocSet.from_schema('test-docset', myschema, savepath=tmpdir)
+
+    # FIFTH: Run the tests. In this example we've set up two system
+    # configurations, which translates to two separate test runs. In a
+    # real-life scenario we would have to ensure our tests are actually
+    # running against a Solr instance that's configured the way we
+    # assert that it is in our ConfigData objects. This could involve
+    # running multiple Solr instances and passing different `solrconn`
+    # objects to each runner. Or it could involve pausing between each
+    # test to reconfigure and reset the Solr environment. Or you could
+    # automate it using e.g. Docker. For this test we don't actually
+    # care about this, so we're just going to run the two tests in
+    # sequence.
     trunner = runner.BenchmarkRunner(tdocset, configdata, solrconn)
-
-    # FIFTH: Run the tests. Note how we're using the `search_run_defs`
-    # to define and then trigger each of our runs. The labeling there
-    # will translate to labeling in the final report.
-    i_stats = trunner.index_docs(batch_size=1000, verbose=False)
+    i_stats = trunner.index_docs(batch_size=1000)
     s_stats = {
         label: trunner.run_searches(search_terms, label, qargs, 5, 0, False)
         for label, qargs in search_run_defs.items()
     }
+    solrconn.delete('*:*', commit=True)
+    trunner2 = runner.BenchmarkRunner(tdocset, configdata2, solrconn)
+    i_stats2 = trunner2.index_docs(batch_size=1000)
+    s_stats2 = {
+        label: trunner2.run_searches(search_terms, label, qargs, 5, 0, False)
+        for label, qargs in search_run_defs.items()
+    }
 
-    # SIXTH: Compile the final report. In reality, you may also want to
-    # save the log to disk to reload it later for further analysis.
+    # SIXTH: Compile the final report for each test and save it to disk
+    # for further analysis later.
+    result_file = trunner.log.save_to_json_file(tmpdir)
     report = trunner.log.compile_report(search_groups)
+    result_file2 = trunner2.log.save_to_json_file(tmpdir)
+    report2 = trunner2.log.compile_report(search_groups)
 
-    # At this point you would want to change your system or Solr
-    # configuration (depending on what you're testing), modify the test
-    # log metadata to reflect the new configuration, and run through
-    # the exact same set of tests again. (This may involve changing the
-    # OS memory allocation, changing cache settings, changing Java heap
-    # settings, switching schema fields between docValues and inverted
-    # fields, or any number of things.) Once you've tested multiple
-    # configs you want to compare, you can export each report to a tool
-    # or format for comparison and analysis.
-
-    # This last section is for our assertions about stats / reports
-    # that were output, to make sure we're getting sane values.
+    # This last section is for our assertions to make sure we're
+    # getting sane values for things.
     assert i_stats == trunner.log.indexing_stats
     assert s_stats == trunner.log.search_stats
+    assert i_stats2 == trunner2.log.indexing_stats
+    assert s_stats2 == trunner2.log.search_stats
     assert list(report.keys()) == ['ADD', 'COMMIT', 'INDEXING', 'SEARCH']
+    assert list(report2.keys()) == ['ADD', 'COMMIT', 'INDEXING', 'SEARCH']
     search_labels = list(search_run_defs.keys()) + list(search_groups.keys())
     assert list(report['SEARCH']['BLANK'].keys()) == search_labels
+    assert list(report2['SEARCH']['BLANK'].keys()) == search_labels
     assert list(report['SEARCH']['ALL TERMS'].keys()) == search_labels
+    assert list(report2['SEARCH']['ALL TERMS'].keys()) == search_labels
+    
+    filepaths = trunner.docset.fileset.filepaths
+    filepaths2 = trunner2.docset.fileset.filepaths
+    assert filepaths == filepaths2
+    assert all(fp.exists() for fp in filepaths)
+    assert result_file.exists()
+    assert result_file2.exists()
+    assert list(trunner.docset.docs) == list(trunner2.docset.docs)
 
     # With batches of 1000 docs, timings for indexing should all be >0.
     for action in ('ADD', 'COMMIT', 'INDEXING'):
         total, _ = report[action]['total']
         avg, _ = report[action]['avg per 1000 docs']
+        total2, _ = report2[action]['total']
+        avg2, _ = report2[action]['avg per 1000 docs']
         assert total > 0
         assert avg > 0
+        assert total2 > 0
+        assert avg2 > 0
 
     # Benchmark components are designed to guarantee at least 1 hit per
     # search term and facet term. With combos of search terms and facet
@@ -153,15 +190,26 @@ def test_runner_integration(configdata, simple_schema, solrconn):
     # your 1 hit (on low cardinality facet values).
     blank_avgs = []
     allterms_avgs = []
+    blank_avgs2 = []
+    allterms_avgs2 = []
     for label in search_labels:
         blank_avg, _ = report['SEARCH']['BLANK'][label]
         blank_avgs.append(blank_avg)
         allterms_avg, _ = report['SEARCH']['ALL TERMS'][label]
         allterms_avgs.append(allterms_avg)
+        blank_avg2, _ = report2['SEARCH']['BLANK'][label]
+        blank_avgs2.append(blank_avg)
+        allterms_avg2, _ = report2['SEARCH']['ALL TERMS'][label]
+        allterms_avgs2.append(allterms_avg)
         if label in search_run_defs:
-            assert any(tr['hits'] > 0 for tr in s_stats[label]['term_results'])
+            res = s_stats[label]['term_results']
+            res2 = s_stats2[label]['term_results']
+            assert any(tr['hits'] > 0 for tr in res)
+            assert all(tr['hits'] == tr2['hits'] for tr, tr2 in zip(res, res2))
     # Timings for a search run may average to 0 when dealing with very
     # low numbers of results (such as in these tests). We just want to
     # make sure SOMETHING returned a >0 timing.
     assert any(avg > 0 for avg in blank_avgs)
     assert any(avg > 0 for avg in allterms_avgs)
+    assert any(avg > 0 for avg in blank_avgs2)
+    assert any(avg > 0 for avg in allterms_avgs2)
