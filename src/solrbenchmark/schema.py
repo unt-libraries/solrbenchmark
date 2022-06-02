@@ -17,7 +17,8 @@ class SearchField(Field):
         """Inits a SearchField instance."""
         self._weights = {}
         self._chances = {}
-        super().__init__(name, emitter, repeat, gate, rng_seed)
+        super().__init__(name, emitter, repeat=repeat, gate=gate, hide=False,
+                         rng_seed=rng_seed)
         self.term_emitter = None
 
     @property
@@ -145,7 +146,8 @@ class FacetField(Field):
     def __init__(self, name, fterm_emitter, repeat=None, gate=None,
                  cardinality_function=None, rng_seed=None):
         """Inits a FacetField instance."""
-        super().__init__(name, Static(None), repeat, gate, rng_seed)
+        super().__init__(name, Static(None), repeat=repeat, gate=gate,
+                         hide=False, rng_seed=rng_seed)
         self.fterm_emitter = fterm_emitter
         if cardinality_function is None:
             self.cardinality_function = static_cardinality(10)
@@ -201,10 +203,9 @@ class BenchmarkSchema(Schema):
 
     def __init__(self, *fields):
         """Inits a BenchmarkSchema instance."""
-        self.fields = ObjectMap({})
         self.search_fields = ObjectMap({})
         self.facet_fields = ObjectMap({})
-        self.add_fields(*fields)
+        super().__init__(*fields)
         self._search_term_emitter = None
         self._num_docs = None
 
@@ -230,8 +231,8 @@ class BenchmarkSchema(Schema):
 
     def add_fields(self, *fields):
         """Adds fields to your schema, in the order provided."""
+        super().add_fields(*fields)
         for field in fields:
-            self.fields.update({field.name: field})
             if hasattr(field, 'configure_injection'):
                 self.search_fields.update({field.name: field})
             if hasattr(field, 'build_facet_values_for_docset'):
