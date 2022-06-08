@@ -4,7 +4,7 @@ from solrfixtures.emitters.choice import chance, Choice, poisson_choice
 from solrfixtures.emitters.fixed import Iterative, Sequential, Static
 from solrfixtures.emitters.fromfields import CopyFields
 from solrfixtures.emitters.text import Text, Word
-from solrfixtures.emitters.wrappers import Wrap
+from solrfixtures.emitters.wrappers import WrapOne
 from solrfixtures.profile import Field
 
 from conftest import LETTERS
@@ -26,7 +26,7 @@ def text(min_, max_, word_em):
 
 
 def keyword(text_or_word_em):
-    return Wrap(text_or_word_em, lambda val: val.capitalize())
+    return WrapOne(text_or_word_em, lambda val: val.capitalize())
 
 
 def id_(min_, max_):
