@@ -289,6 +289,47 @@ def test_searchfield_injection_and_caching(seed, which_emitter, repeat, gate,
     assert expected[-1] == field.previous
 
 
+@pytest.mark.parametrize('seed, emitter, st_emitter, count, expected', [
+    # This test covers some specific edge cases that have proven
+    # problematic.
+
+    # First: regarding blank values. Term injection does not happen for
+    # any blank-equivalent values. Normally it's recommended that an
+    # emitter just emit None rather than something like '' or [].
+    (999, Static(''), Static('_term_'), 1, ''),
+
+    # However, when an emitter emits something like a list, we do not
+    # inspect the list values to check to see if at least one is not
+    # blank. We treat [''] as a non-blank value, and we DO inject.
+    (999, Static(['']), Static('_term_'), 1, ['_term_']),
+    (999, Static(['', '']), Static('_term_'), 1, ['_term_', '']),
+    (999, Static(['TEST', '', 'TEST']), Static('_term_'), 1,
+     ['TEST', '', '_term_ TEST']),
+
+    # This is to test a previously-occurring error with position
+    # selection when injecting into a single-character string.
+    (999, Static('A'), Static('_term_'), 1, 'A _term_'),
+
+    # These last tests just show the difference in how term injection
+    # happens when you have an emitter that emits single values called
+    # multiple times, compared to the above examples where you have
+    # an emitter that emits a list with each call.
+    (999, Sequential(['', '']), Static('_term_'), 4, ['', '', '', '']),
+    (999, Sequential(['', 'TEST']), Static('_term_'), 4,
+     ['', 'TE _term_ ST', '', '_term_ TEST']),
+    (999, Sequential(['A', 'B']), Static('_term_'), 4,
+     ['A _term_', 'B _term_', 'A _term_', 'B _term_']),
+])
+def test_searchfield_injection_emitter_edge_cases(seed, emitter, st_emitter,
+                                                  count, expected):
+    field = schema.SearchField('test', emitter, rng_seed=seed)
+    field.configure_injection(st_emitter, 1.0, 0)
+    if count == 1:
+        assert field() == expected
+    else:
+        assert [field() for _ in range(count)] == expected
+
+
 def test_searchfield_call_before_configure(default_emitters):
     """When a SearchField is called before injection is fully
     configured, it emits values as though it were a regular Field

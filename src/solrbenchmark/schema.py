@@ -102,7 +102,8 @@ class SearchField(Field):
         term = self._emitters['term']()
         if self._should_overwrite():
             return term
-        pos = self.rng.choice(range(len(val) - 1))
+        pos_max = len(val)
+        pos = pos_max if pos_max <= 1 else self.rng.choice(range(pos_max - 1))
         return ' '.join([val[:pos], term, val[pos:]]).strip()
 
     def __call__(self):
@@ -114,8 +115,8 @@ class SearchField(Field):
         if self._emitters['gate']():
             number = self._emitters['repeat']()
             val_or_vals = self._emitters['emitter'](number)
-            if val_or_vals not in (None, []) and self._should_inject():
-                val_or_vals = self._inject(val_or_vals)                                
+            if val_or_vals and self._should_inject():
+                val_or_vals = self._inject(val_or_vals)
             self._cache = val_or_vals
         return self._cache
 
@@ -312,12 +313,11 @@ class BenchmarkSchema(Schema):
         # term for each search field, we need to know the chance that
         # there will be an *opportunity* to inject a search term -- so
         # we need to know the chance that each search field will emit
-        # a non-empty value -- e.g. not None or []. The only reliable
-        # way to do this is to take a sample of the schema output. (And
-        # we have to output full docs in case there are SearchFields
-        # using e.g. CopyFields emitters, which rely on other Fields.)
-        # This may take a noticeable amount of time, depending on the
-        # size of the schema.
+        # a non-empty value. The only reliable way to do this is to
+        # sample the schema output. (And we have to output full docs in
+        # case there are SearchFields using e.g. CopyFields emitters,
+        # which rely on other Fields.) This may take a noticeable
+        # amount of time, depending on the size of the schema.
 
         counts = {}
         max_ratio_per_field = {}
@@ -325,7 +325,7 @@ class BenchmarkSchema(Schema):
         for i in range(sample_size):
             doc = self()
             for fname in search_field_names:
-                if doc[fname] not in (None, []):
+                if doc[fname]:
                     counts[fname] = counts.get(fname, 0) + 1
                 if i == sample_size - 1:
                     max_ratio = counts.get(fname, 0) / sample_size
