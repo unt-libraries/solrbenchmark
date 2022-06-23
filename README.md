@@ -75,7 +75,7 @@ config_heap_mx410 = runner.ConfigData(
     solr_version='8.11.1',
     solr_caches='caching disabled',
     solr_schema='myschema, using docValues for facets',
-    os='Docker on Windows WSL2/Ubuntu'
+    os='Docker on Windows WSL2/Ubuntu',
     os_memory='16GB',
     jvm_memory='-Xms52M -Xmx410M',
     jvm_settings='...',
@@ -127,7 +127,7 @@ word_em = text.Word(
     choice.poisson_choice(range(2, 11), mu=4),
     choice.Choice(alphabet)
 )
-term_em = terms.make_search_terms_and_emitter(word_em, vocab_size=50)
+term_em = terms.make_search_term_emitter(word_em, vocab_size=50)
 
 # We configure the schema for a test set of 500,000 documents.
 myschema.configure(500000, term_em, term_doc_ratio=0.75, overwrite_chance=0.25)
@@ -241,7 +241,7 @@ def run_heap_test(solrconn, configdata, docset, search_defs):
     # additional looking / searching / testing we want to do before
     # running the next test.
     print('Cleaning up.')
-    solrconn.delete('*:*', commit=True)
+    solrconn.delete(q='*:*', commit=True)
     print('Done.\n')
     # Returning the test log object gives us access to all the recorded
     # data.

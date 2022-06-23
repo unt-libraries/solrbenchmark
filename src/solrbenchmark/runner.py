@@ -210,6 +210,8 @@ class BenchmarkRunner:
         timings = []
         batch = []
         for i, doc in enumerate(self.docset.docs):
+            if verbose and i % batch_size == 0:
+                print('Gathering docs.')
             batch.append(doc)
             if (i + 1) % batch_size == 0:
                 timings.extend(_do(batch, i))
