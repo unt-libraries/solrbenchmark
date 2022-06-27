@@ -36,9 +36,9 @@ class ConfigData:
         return new_obj
 
 
-def compose_result_json_filepath(basepath, docset_id, config_id):
-    """Get the filepath for a result file from a docset & config id."""
-    return Path(basepath) / f'{docset_id}--{config_id}_result.json'
+def compose_log_json_filepath(basepath, docset_id, config_id):
+    """Get the filepath for a log file from a docset & config id."""
+    return Path(basepath) / f'{docset_id}--{config_id}-log.json'
 
 
 class BenchmarkLog:
@@ -49,25 +49,27 @@ class BenchmarkLog:
         self.configdata = configdata
         self.indexing_stats = {}
         self.search_stats = {}
-        self._result_filepath = None
+        self._filepath = None
 
     @property
-    def result_filepath(self):
-        return self._result_filepath
+    def filepath(self):
+        return self._filepath
 
-    def save_to_json_file(self, basepath):
-        self._result_filepath = compose_result_json_filepath(
-            basepath, self.docset_id, self.configdata.config_id
-        )
+    @property
+    def config_id(self):
+        return self.configdata.config_id
+
+    def save_to_json_file(self, filepath):
+        self._filepath = filepath
         json_str = ujson.dumps({
             'docset_id': self.docset_id,
             'configdata': asdict(self.configdata),
             'indexing_stats': self.indexing_stats,
             'search_stats': self.search_stats
         })
-        with open(self._result_filepath, 'w') as f:
-            f.write(json_str)
-        return self._result_filepath
+        with open(filepath, 'w') as json_fh:
+            json_fh.write(json_str)
+        return filepath
 
     @classmethod
     def load_from_json_file(cls, filepath):
@@ -78,6 +80,7 @@ class BenchmarkLog:
         bmark_log = cls(data['docset_id'], configdata)
         bmark_log.indexing_stats = data['indexing_stats']
         bmark_log.search_stats = data['search_stats']
+        bmark_log._filepath = filepath
         return bmark_log
 
     def compile_report(self, aggregate_search_groups={}):
@@ -184,15 +187,53 @@ def _compile_search_results(term_results):
     }
 
 
+class RunnerConfigurationError(Exception):
+    pass
+
+
 class BenchmarkRunner:
     """Class for running Solr benchmark tests."""
 
-    def __init__(self, docset, configdata, conn):
-        self.docset = docset
-        self.log = BenchmarkLog(docset.id, configdata)
+    def __init__(self, conn):
         self.conn = conn
+        self.log = None
+        self.log_basepath = None
 
-    def index_docs(self, batch_size=1000, verbose=True):
+    def configure(self, docset_id, configdata):
+        self.log = BenchmarkLog(docset_id, configdata)
+        return self
+
+    def configure_from_saved_log(self, log_path):
+        log_path = Path(log_path)
+        self.log = BenchmarkLog.load_from_json_file(log_path)
+        self.log_basepath = log_path.parent
+        return self
+
+    @property
+    def is_configured(self):
+        return bool(self.log)
+
+    @property
+    def logpath(self):
+        try:
+            return compose_log_json_filepath(
+                self.log_basepath, self.log.docset_id, self.log.config_id
+            )
+        except TypeError:
+            return None
+
+    def save_log(self, basepath=None):
+        self.log_basepath = basepath or self.log_basepath
+        try:
+            return self.log.save_to_json_file(self.logpath)
+        except (TypeError, FileNotFoundError):
+            raise ValueError(
+                f"Attempted to save log data to `{self.logpath}`, an invalid "
+                f"path. Please provide a valid directory for the 'basepath' "
+                f"argument."
+            ) from None
+
+    def index_docs(self, docset, batch_size=1000, verbose=True):
         def _do(batch, i):
             timings = []
             if verbose:
@@ -206,10 +247,22 @@ class BenchmarkRunner:
             commit_qtime = _scrape_qtime(commit_response)
             timings.append(('committing', commit_qtime))
             return timings
+        
+        if not self.is_configured:
+            raise RunnerConfigurationError(
+                'Attempted to run tests without adding configuration data via '
+                '`configure` or `configure_from_saved_log` methods.'
+            )
+
+        if self.log.docset_id != docset.id:
+            raise RunnerConfigurationError(
+                f"The 'id' of the given docset (`{docset.id}`) does not match "
+                f"the configured 'docset_id' (`{self.log.docset_id}`)."
+            )
 
         timings = []
         batch = []
-        for i, doc in enumerate(self.docset.docs):
+        for i, doc in enumerate(docset.docs):
             if verbose and i % batch_size == 0:
                 print('Gathering docs.')
             batch.append(doc)
@@ -219,7 +272,7 @@ class BenchmarkRunner:
         if batch:
             timings.extend(_do(batch, i))
 
-        total = self.docset.total_docs
+        total = docset.total_docs
         stats = _compile_indexing_results(timings, total, batch_size)
         self.log.indexing_stats = stats
         return stats
@@ -247,6 +300,11 @@ class BenchmarkRunner:
 
     def run_searches(self, terms, label, query_kwargs=None, rep_n=0,
                      ignore_n=0, verbose=True):
+        if not self.is_configured:
+            raise RunnerConfigurationError(
+                'Attempted to run tests without adding configuration data via '
+                '`configure` or `configure_from_saved_log` methods.'
+            )
         if verbose:
             print(f'{label} ({len(terms)} searches) ', end='', flush=True)
         term_results = []

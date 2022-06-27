@@ -1,5 +1,6 @@
 """Contains tests for `runner` module."""
 import dataclasses
+from pathlib import Path
 from unittest.mock import call, Mock
 
 import pytest
@@ -144,9 +145,12 @@ def test_benchmarklog_saveto_and_loadfrom_jsonfile(configdata, tmpdir):
     tlog = runner.BenchmarkLog(docset_id, configdata)
     tlog.indexing_stats = istats
     tlog.search_stats = sstats
-    filepath = tlog.save_to_json_file(tmpdir)
+    filepath = tmpdir / 'save_file.json'
+    assert not filepath.exists()
+    assert tlog.filepath is None
+    filepath = tlog.save_to_json_file(filepath)
     assert filepath.exists()
-    assert filepath == tlog.result_filepath
+    assert tlog.filepath == filepath
     del(tlog)
 
     new_tlog = runner.BenchmarkLog.load_from_json_file(filepath)
@@ -154,6 +158,7 @@ def test_benchmarklog_saveto_and_loadfrom_jsonfile(configdata, tmpdir):
     assert new_tlog.docset_id == docset_id
     assert new_tlog.indexing_stats == istats
     assert new_tlog.search_stats == sstats
+    assert new_tlog.filepath == filepath
 
 
 def test_benchmarklog_compilereport(configdata):
@@ -295,6 +300,124 @@ def test_benchmarklog_compilereport(configdata):
     assert tlog.compile_report(aggregate_search_groups) == expected_report
 
 
+def test_benchmarkrunner_no_logbasepath_save_error(configdata, solrconn):
+    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+    with pytest.raises(ValueError) as excinfo:
+        trunner.save_log()
+    assert str(excinfo.value).startswith(
+        'Attempted to save log data to `None`'
+    )
+
+
+def test_benchmarkrunner_save_logfile_behavior(configdata, solrconn, tmpdir):
+    # This tests saving a logfile in various states using a realistic
+    # multi-step workflow.
+    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+    exp_filepath = Path(runner.compose_log_json_filepath(
+        tmpdir, 'test', configdata.config_id
+    ))
+
+    # First, simulate some indexing stats.
+    trunner.log.indexing_stats['a'] = 'test a'
+
+    # Then save the log file to disk. The expected file should not
+    # exist until we save it.
+    assert not exp_filepath.exists()
+    returned_filepath = trunner.save_log(tmpdir)
+    assert trunner.logpath == returned_filepath == exp_filepath
+    assert trunner.logpath.exists()
+    # Capture the log contents at this stage for comparison later.
+    log1 = runner.BenchmarkLog.load_from_json_file(exp_filepath)
+
+    # Simulate getting search stats.
+    trunner.log.search_stats['b'] = 'test b'
+
+    # Now, save the log again. It should update the existing file.
+    # Note that we don't need to include the basepath again when we
+    # call trunner.save_log.
+    returned_filepath2 = trunner.save_log()
+    assert returned_filepath2 == exp_filepath
+
+    # Capture log contents again and compare the earlier snapshot to
+    # the new one.
+    log2 = runner.BenchmarkLog.load_from_json_file(exp_filepath)
+    assert log1.docset_id == log2.docset_id == 'test'
+    assert log1.configdata == log2.configdata == configdata
+    assert log1.indexing_stats == log2.indexing_stats == {'a': 'test a'}
+    assert log1.search_stats == {}
+    assert log2.search_stats == {'b': 'test b'}
+
+
+def test_benchmarkrunner_load_logfile_behavior(configdata, solrconn, tmpdir):
+    # Q: What if you want to re-run search tests for a specific config
+    # but preserve the indexing tests that were already run?
+    # A: Use `configure_from_saved_log` to load the logfile from disk.
+    # Then run the search tests and save the file back to disk.
+    lpath = Path(runner.compose_log_json_filepath(
+        tmpdir, 'test', configdata.config_id
+    ))
+
+    # First we simulate an existing log file saved to disk.
+    old_log = runner.BenchmarkLog('test', configdata)
+    old_log.indexing_stats = {'a': 'original indexing stats'}
+    old_log.search_stats = {'b': 'original search stats'}
+    old_log.save_to_json_file(lpath)
+
+    # Now create a BenchmarkRunner and load the configuration from that
+    # saved file. (Confirm that it loaded correctly.)
+    trunner = runner.BenchmarkRunner(solrconn).configure_from_saved_log(lpath)
+    assert trunner.logpath == lpath
+    assert trunner.log_basepath == lpath.parent
+    assert trunner.log.docset_id == 'test'
+    assert trunner.log.configdata == configdata
+    assert trunner.log.indexing_stats == {'a': 'original indexing stats'}
+    assert trunner.log.search_stats == {'b': 'original search stats'}
+
+    # Finally, replace the search stats and save the file. Confirm that
+    # the new search stats are saved but the old indexing stats are
+    # intact.
+    trunner.log.search_stats = {'c': 'new search stats'}
+    trunner.save_log()
+    new_log = runner.BenchmarkLog.load_from_json_file(lpath)
+    assert new_log.docset_id == 'test'
+    assert new_log.configdata == configdata
+    assert new_log.indexing_stats == {'a': 'original indexing stats'}
+    assert new_log.search_stats == {'c': 'new search stats'}
+
+
+def test_benchmarkrunner_logpath_updates_itself(configdata, solrconn, tmpdir):
+    # Q: Can you use the same test runner to run multiple tests and
+    # just re-configure it each time? Does it save to different files
+    # or do you have to manage that yourself?
+    # A: You can use the same test runner for multiple configurations.
+    # The `logpath` attribute updates automatically if you use a
+    # different basepath or if you change the configuration.
+    lpath = Path(runner.compose_log_json_filepath(
+        tmpdir, 'test', configdata.config_id
+    ))
+    old_log = runner.BenchmarkLog('test', configdata)
+    old_log.indexing_stats = {'a': 'original indexing stats'}
+    old_log.search_stats = {'b': 'original search stats'}
+    old_log.save_to_json_file(lpath)
+
+    trunner1 = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+    trunner1.log_basepath = tmpdir
+    trunner2 = runner.BenchmarkRunner(solrconn).configure_from_saved_log(lpath)
+    assert trunner1.logpath == trunner2.logpath == lpath
+
+    trunner1.configure('t2', configdata)
+    trunner2.configure('t2', configdata)
+    assert trunner1.logpath == trunner2.logpath == Path(
+        runner.compose_log_json_filepath(tmpdir, 't2', configdata.config_id)
+    )
+    configdata2 = configdata.derive('config-id2')
+    trunner1.configure('t3', configdata2)
+    trunner2.configure('t3', configdata2)
+    assert trunner1.logpath == trunner2.logpath == Path(
+        runner.compose_log_json_filepath(tmpdir, 't3', configdata2.config_id)
+    )
+
+
 def test_benchmarkrunner_indexdocs(configdata, simple_schema, solrconn,
                                    indexstats_sanity_check,
                                    assert_index_matches_docslist):
@@ -305,12 +428,28 @@ def test_benchmarkrunner_indexdocs(configdata, simple_schema, solrconn,
     docslist = [myschema() for _ in range(myschema.num_docs)]
     myschema.reset_fields()
     tdocset = docs.DocSet.from_schema('test-docset', myschema)
-    tlog = runner.BenchmarkLog('indexdocs_test', configdata)
-    trunner = runner.BenchmarkRunner(tdocset, tlog, solrconn)
-    stats = trunner.index_docs(batch_size=batch_size, verbose=True)
+    tr = runner.BenchmarkRunner(solrconn).configure(tdocset.id, configdata)
+    stats = tr.index_docs(tdocset, batch_size=batch_size, verbose=True)
     indexstats_sanity_check(stats, batch_size, myschema.num_docs)
-    assert trunner.log.indexing_stats == stats
+    assert tr.log.indexing_stats == stats
     assert_index_matches_docslist(docslist, solrconn)
+
+
+def test_benchmarkrunner_indexdocs_not_configured(solrconn):
+    trunner = runner.BenchmarkRunner(solrconn)
+    docset = Mock(id='test')
+    with pytest.raises(runner.RunnerConfigurationError) as excinfo:
+        trunner.index_docs(docset)
+    assert 'without adding configuration data' in str(excinfo.value)
+
+
+def test_benchmarkrunner_indexdocs_wrong_docset(configdata, solrconn):
+    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+    docset = Mock(id='WRONG')
+    with pytest.raises(runner.RunnerConfigurationError) as excinfo:
+        trunner.index_docs(docset)
+    assert "(`WRONG`) does not match" in str(excinfo.value)
+    assert str(excinfo.value).endswith('(`test`).')
 
 
 @pytest.mark.parametrize('rep_n, ignore_n, qtimes, exp_qtime', [
@@ -331,8 +470,7 @@ def test_benchmarkrunner_search_controls(rep_n, ignore_n, qtimes, exp_qtime,
     # searches. It should report the average qtime in ms from the ones
     # it does not ignore.
     mockconn = new_mockconn({'test': (10, qtimes)})
-    mockdocset = Mock(id='mock-docset')
-    trunner = runner.BenchmarkRunner(mockdocset, configdata, mockconn)
+    trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     info = trunner.search('test', {}, rep_n, ignore_n)
     assert info['qtime_ms'] == exp_qtime
     assert mockconn.search.call_count == rep_n
@@ -351,8 +489,7 @@ def test_benchmarkrunner_search_controls(rep_n, ignore_n, qtimes, exp_qtime,
 ])
 def test_benchmarkrunner_search_result(q, kwargs, exp_hits, exp_ids,
                                        configdata, test_doc_data, solrconn):
-    mockdocset = Mock(id='mock-docset')
-    trunner = runner.BenchmarkRunner(mockdocset, configdata, solrconn)
+    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
     solrconn.add(test_doc_data, commit=True)
     info = trunner.search(q, kwargs)
     result_ids = [r['id'] for r in info['result']]
@@ -387,8 +524,7 @@ def test_benchmarkrunner_runsearches(terminfo, qkwargs, rep_n, ignore_n,
     # `terms`, using the given query_kwargs, rep_n, and ignore_n args.
     # It should result in the expected stats.
     mockconn = new_mockconn(terminfo)
-    mockdocset = Mock(id='mock-docset')
-    trunner = runner.BenchmarkRunner(mockdocset, configdata, mockconn)
+    trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     stats = trunner.run_searches(terminfo.keys(), 'TEST', qkwargs, rep_n,
                                  ignore_n, verbose=False)
     assert stats == exp_stats
@@ -396,3 +532,10 @@ def test_benchmarkrunner_runsearches(terminfo, qkwargs, rep_n, ignore_n,
     mockconn.search.assert_has_calls(
         [call(q=q or '*:*', **qkwargs) for q in terminfo for _ in range(rep_n)]
     )
+
+
+def test_benchmarkrunner_runsearches_not_configured(solrconn):
+    trunner = runner.BenchmarkRunner(solrconn)
+    with pytest.raises(runner.RunnerConfigurationError) as excinfo:
+        trunner.run_searches(['one', 'two'], 'TEST')
+    assert 'without adding configuration data' in str(excinfo.value)

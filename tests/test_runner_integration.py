@@ -129,57 +129,60 @@ def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     # automate it using e.g. Docker. For this test we don't actually
     # care about this, so we're just going to run the two tests in
     # sequence.
-    trunner = runner.BenchmarkRunner(tdocset, configdata, solrconn)
-    i_stats = trunner.index_docs(batch_size=1000)
-    s_stats = {
+    ds_id = tdocset.id
+    trunner = runner.BenchmarkRunner(solrconn).configure(ds_id, configdata)
+    i_stats1 = trunner.index_docs(tdocset, batch_size=1000)
+    s_stats1 = {
         label: trunner.run_searches(search_terms, label, qargs, 5, 0, False)
         for label, qargs in search_run_defs.items()
     }
-    solrconn.delete('*:*', commit=True)
-    trunner2 = runner.BenchmarkRunner(tdocset, configdata2, solrconn)
-    i_stats2 = trunner2.index_docs(batch_size=1000)
+    logpath1 = trunner.save_log(tmpdir)
+    solrconn.delete(q='*:*', commit=True)
+    # Note: For the second configuration, we can either run `configure`
+    # again on the existing BenchmarkRunner object or init a new one.
+    trunner.configure(ds_id, configdata2)
+    i_stats2 = trunner.index_docs(tdocset, batch_size=1000)
     s_stats2 = {
-        label: trunner2.run_searches(search_terms, label, qargs, 5, 0, False)
+        label: trunner.run_searches(search_terms, label, qargs, 5, 0, False)
         for label, qargs in search_run_defs.items()
     }
+    logpath2 = trunner.save_log(tmpdir)
 
-    # SIXTH: Compile the final report for each test and save it to disk
-    # for further analysis later.
-    result_file = trunner.log.save_to_json_file(tmpdir)
-    report = trunner.log.compile_report(search_groups)
-    result_file2 = trunner2.log.save_to_json_file(tmpdir)
-    report2 = trunner2.log.compile_report(search_groups)
+    # SIXTH: Compile a final report for each test.
+    log1 = runner.BenchmarkLog.load_from_json_file(logpath1)
+    log2 = runner.BenchmarkLog.load_from_json_file(logpath2)
+    report1 = log1.compile_report(search_groups)
+    report2 = log2.compile_report(search_groups)
 
     # This last section is for our assertions to make sure we're
     # getting sane values for things.
-    assert i_stats == trunner.log.indexing_stats
-    assert s_stats == trunner.log.search_stats
-    assert i_stats2 == trunner2.log.indexing_stats
-    assert s_stats2 == trunner2.log.search_stats
-    assert list(report.keys()) == ['ADD', 'COMMIT', 'INDEXING', 'SEARCH']
+    assert i_stats1 == log1.indexing_stats
+    assert s_stats1 == log1.search_stats
+    assert i_stats2 == log2.indexing_stats
+    assert s_stats2 == log2.search_stats
+    assert i_stats1 != i_stats2
+    assert s_stats1 != s_stats2
+    assert list(report1.keys()) == ['ADD', 'COMMIT', 'INDEXING', 'SEARCH']
     assert list(report2.keys()) == ['ADD', 'COMMIT', 'INDEXING', 'SEARCH']
     search_labels = list(search_run_defs.keys()) + list(search_groups.keys())
-    assert list(report['SEARCH']['BLANK'].keys()) == search_labels
+    assert list(report1['SEARCH']['BLANK'].keys()) == search_labels
     assert list(report2['SEARCH']['BLANK'].keys()) == search_labels
-    assert list(report['SEARCH']['ALL TERMS'].keys()) == search_labels
+    assert list(report1['SEARCH']['ALL TERMS'].keys()) == search_labels
     assert list(report2['SEARCH']['ALL TERMS'].keys()) == search_labels
     
-    filepaths = trunner.docset.fileset.filepaths
-    filepaths2 = trunner2.docset.fileset.filepaths
-    assert filepaths == filepaths2
+    filepaths = tdocset.fileset.filepaths
     assert all(fp.exists() for fp in filepaths)
-    assert result_file.exists()
-    assert result_file2.exists()
-    assert list(trunner.docset.docs) == list(trunner2.docset.docs)
+    assert logpath1.exists()
+    assert logpath2.exists()
 
     # With batches of 1000 docs, timings for indexing should all be >0.
     for action in ('ADD', 'COMMIT', 'INDEXING'):
-        total, _ = report[action]['total']
-        avg, _ = report[action]['avg per 1000 docs']
+        total1, _ = report1[action]['total']
+        avg1, _ = report1[action]['avg per 1000 docs']
         total2, _ = report2[action]['total']
         avg2, _ = report2[action]['avg per 1000 docs']
-        assert total > 0
-        assert avg > 0
+        assert total1 > 0
+        assert avg1 > 0
         assert total2 > 0
         assert avg2 > 0
 
@@ -188,28 +191,30 @@ def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     # terms, you may have runs where you get 0 search term hits. But if
     # you are including "blank" (i.e. *:*) then THAT should produce
     # your 1 hit (on low cardinality facet values).
-    blank_avgs = []
-    allterms_avgs = []
+    blank_avgs1 = []
+    allterms_avgs1 = []
     blank_avgs2 = []
     allterms_avgs2 = []
     for label in search_labels:
-        blank_avg, _ = report['SEARCH']['BLANK'][label]
-        blank_avgs.append(blank_avg)
-        allterms_avg, _ = report['SEARCH']['ALL TERMS'][label]
-        allterms_avgs.append(allterms_avg)
+        blank_avg1, _ = report1['SEARCH']['BLANK'][label]
+        blank_avgs1.append(blank_avg1)
+        allterms_avg1, _ = report1['SEARCH']['ALL TERMS'][label]
+        allterms_avgs1.append(allterms_avg1)
         blank_avg2, _ = report2['SEARCH']['BLANK'][label]
-        blank_avgs2.append(blank_avg)
+        blank_avgs2.append(blank_avg2)
         allterms_avg2, _ = report2['SEARCH']['ALL TERMS'][label]
-        allterms_avgs2.append(allterms_avg)
+        allterms_avgs2.append(allterms_avg2)
         if label in search_run_defs:
-            res = s_stats[label]['term_results']
+            res1 = s_stats1[label]['term_results']
             res2 = s_stats2[label]['term_results']
-            assert any(tr['hits'] > 0 for tr in res)
-            assert all(tr['hits'] == tr2['hits'] for tr, tr2 in zip(res, res2))
+            assert any(tr1['hits'] > 0 for tr1 in res1)
+            assert all(
+                tr1['hits'] == tr2['hits'] for tr1, tr2 in zip(res1, res2)
+            )
     # Timings for a search run may average to 0 when dealing with very
     # low numbers of results (such as in these tests). We just want to
     # make sure SOMETHING returned a >0 timing.
-    assert any(avg > 0 for avg in blank_avgs)
-    assert any(avg > 0 for avg in allterms_avgs)
+    assert any(avg > 0 for avg in blank_avgs1)
+    assert any(avg > 0 for avg in allterms_avgs2)
     assert any(avg > 0 for avg in blank_avgs2)
     assert any(avg > 0 for avg in allterms_avgs2)

@@ -218,11 +218,12 @@ def run_heap_test(solrconn, configdata, docset, search_defs):
 
     # We create a BenchmarkRunner object that will run our tests and
     # track statistics for us.
-    testrunner = runner.BenchmarkRunner(docset, configdata, solrconn)
+    testrunner = runner.BenchmarkRunner(solrconn)
+    testrunner.configure(docset.id, configdata)
 
     # Now we just index our docset (indexing timings are recorded) ...
     print('Indexing documents.')
-    testrunner.index_docs(batch_size=1000, verbose=True)
+    testrunner.index_docs(docset, batch_size=1000, verbose=True)
     
     # ... and run the searches we've configured. Note the 'rep_n=5' and
     # 'ignore_n=1' parameters. This tells it to search each term 5
@@ -235,7 +236,7 @@ def run_heap_test(solrconn, configdata, docset, search_defs):
 
     # Generally we'll want to save the results of each test so we don't
     # have to repeat the test later.
-    testrunner.log.save_to_json_file(docset.savepath)
+    testrunner.save_log(docset.fileset.basepath)
 
     # And we can probably go ahead and clear Solr, unless there's any
     # additional looking / searching / testing we want to do before
@@ -243,7 +244,7 @@ def run_heap_test(solrconn, configdata, docset, search_defs):
     print('Cleaning up.')
     solrconn.delete(q='*:*', commit=True)
     print('Done.\n')
-    # Returning the test log object gives us access to all the recorded
+    # Returning the test runner object gives us access to all the recorded
     # data.
     return testrunner.log
 
