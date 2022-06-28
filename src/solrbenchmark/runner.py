@@ -277,8 +277,8 @@ class BenchmarkRunner:
         self.log.indexing_stats = stats
         return stats
 
-    def search(self, q, kwargs, rep_n=1, ignore_n=0):
-        q = q or '*:*'
+    def search(self, q, kwargs, rep_n=1, ignore_n=0, blank_q=''):
+        q = q or blank_q
         timings = []
         hits = None
         for i in range(rep_n):
@@ -299,7 +299,7 @@ class BenchmarkRunner:
         }
 
     def run_searches(self, terms, label, query_kwargs=None, rep_n=0,
-                     ignore_n=0, verbose=True):
+                     ignore_n=0, blank_q='', verbose=True):
         if not self.is_configured:
             raise RunnerConfigurationError(
                 'Attempted to run tests without adding configuration data via '
