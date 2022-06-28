@@ -17,12 +17,12 @@ def new_mockconn():
         term_qt_gens = {}
         term_hits = {}
         for term, hits_qts in terms_hits_qts.items():
-            term = term or '*:*'
+            term = term or ''
             hits, qtimes = hits_qts
             term_qt_gens[term] = (qt for qt in qtimes)
             term_hits[term] = hits
 
-        def _side_effect(q='*:*', **kwargs):
+        def _side_effect(q='', **kwargs):
             return Mock(qtime=next(term_qt_gens[q]), hits=term_hits[q])
 
         mockconn = Mock()
@@ -526,11 +526,11 @@ def test_benchmarkrunner_runsearches(terminfo, qkwargs, rep_n, ignore_n,
     mockconn = new_mockconn(terminfo)
     trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     stats = trunner.run_searches(terminfo.keys(), 'TEST', qkwargs, rep_n,
-                                 ignore_n, verbose=False)
+                                 ignore_n, blank_q='*:*', verbose=False)
     assert stats == exp_stats
     assert trunner.log.search_stats['TEST'] == stats
     mockconn.search.assert_has_calls(
-        [call(q=q or '*:*', **qkwargs) for q in terminfo for _ in range(rep_n)]
+        [call(q=q, **qkwargs) for q in terminfo for _ in range(rep_n)]
     )
 
 
