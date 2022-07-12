@@ -133,7 +133,8 @@ def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     trunner = runner.BenchmarkRunner(solrconn).configure(ds_id, configdata)
     i_stats1 = trunner.index_docs(tdocset, batch_size=1000)
     s_stats1 = {
-        label: trunner.run_searches(search_terms, label, qargs, 5, 0, False)
+        label: trunner.run_searches(search_terms, label, qargs, 5, 0, '*:*',
+                                    False)
         for label, qargs in search_run_defs.items()
     }
     logpath1 = trunner.save_log(tmpdir)
@@ -143,7 +144,8 @@ def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     trunner.configure(ds_id, configdata2)
     i_stats2 = trunner.index_docs(tdocset, batch_size=1000)
     s_stats2 = {
-        label: trunner.run_searches(search_terms, label, qargs, 5, 0, False)
+        label: trunner.run_searches(search_terms, label, qargs, 5, 0, '*:*',
+                                    False)
         for label, qargs in search_run_defs.items()
     }
     logpath2 = trunner.save_log(tmpdir)
