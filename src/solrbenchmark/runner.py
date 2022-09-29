@@ -72,11 +72,11 @@ class BenchmarkLog:
         return filepath
 
     @classmethod
-    def load_from_json_file(cls, filepath):
+    def load_from_json_file(cls, filepath, cfgdata_cls=ConfigData):
         with open(filepath) as f:
             json_str = f.read()
         data = ujson.loads(json_str)
-        configdata = ConfigData(**data['configdata'])
+        configdata = cfgdata_cls(**data['configdata'])
         bmark_log = cls(data['docset_id'], configdata)
         bmark_log.indexing_stats = data['indexing_stats']
         bmark_log.search_stats = data['search_stats']
