@@ -1,9 +1,8 @@
 """
 Create sets of terms (facets, search terms) to use in benchmark tests.
 """
-from fauxdoc.mathtools import clamp
 from fauxdoc.emitter import Emitter
-from fauxdoc.emitters.choice import Choice, chance, gaussian_choice
+from fauxdoc.emitters.choice import Choice, gaussian_choice
 from fauxdoc.emitters.fixed import Static
 from fauxdoc.emitters.text import Text
 from fauxdoc.group import ObjectMap

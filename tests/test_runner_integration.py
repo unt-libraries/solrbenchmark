@@ -1,11 +1,9 @@
 """Contains integration test(s) for `runner` module."""
-import pytest
-
 from solrbenchmark import docs, runner
 
 
 # Fixtures / test data
-# 
+#
 # Tests below use built-in pytest fixture `tmpdir`. Other fixtures used
 # are defined in `conftest.py`:
 #    simple_schema
@@ -38,8 +36,8 @@ def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     colors = myschema.fields['colors'].terms
     pattern = myschema.fields['pattern'].terms
     all_facets_kwargs = {
-        'facet': 'true', 'facet.field': 'colors', 'f.colors.facet.limit': 5,
-        'facet.field': 'pattern', 'f.pattern.facet.limit': 5
+        'facet': 'true', 'facet.field': ['colors', 'pattern'],
+        'f.colors.facet.limit': 5, 'f.pattern.facet.limit': 5
     }
     search_run_defs = {
         'no facets + no fq': {},
@@ -88,10 +86,10 @@ def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     # from your base search defs and apply a label to each group.
     search_groups = {
         'no facets GROUP': [
-            l for l in search_run_defs if l.startswith('no facets')
+            rdef for rdef in search_run_defs if rdef.startswith('no facets')
         ],
         'all facets GROUP': [
-            l for l in search_run_defs if l.startswith('all facets')
+            rdef for rdef in search_run_defs if rdef.startswith('all facets')
         ],
     }
 
@@ -171,7 +169,7 @@ def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
     assert list(report2['SEARCH']['BLANK'].keys()) == search_labels
     assert list(report1['SEARCH']['ALL TERMS'].keys()) == search_labels
     assert list(report2['SEARCH']['ALL TERMS'].keys()) == search_labels
-    
+
     filepaths = tdocset.fileset.filepaths
     assert all(fp.exists() for fp in filepaths)
     assert logpath1.exists()

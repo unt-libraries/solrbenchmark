@@ -3,7 +3,7 @@ from dotenv import dotenv_values
 import pysolr
 import pytest
 from fauxdoc.emitters.choice import chance, Choice
-from fauxdoc.emitters.fixed import Iterative, Sequential, Static
+from fauxdoc.emitters.fixed import Iterative, Sequential
 from fauxdoc.emitters.fromfields import CopyFields
 from fauxdoc.profile import Field
 

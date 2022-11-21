@@ -1,7 +1,7 @@
 """Contains schema components for benchmarking."""
 import sys
 
-from fauxdoc.emitters.choice import chance as chance_em, gaussian_choice
+from fauxdoc.emitters.choice import gaussian_choice
 from fauxdoc.emitters.fixed import Static
 from fauxdoc.group import ObjectMap
 from fauxdoc.mathtools import clamp

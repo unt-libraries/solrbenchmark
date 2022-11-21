@@ -151,7 +151,7 @@ def test_benchmarklog_saveto_and_loadfrom_jsonfile(configdata, tmpdir):
     filepath = tlog.save_to_json_file(filepath)
     assert filepath.exists()
     assert tlog.filepath == filepath
-    del(tlog)
+    del tlog
 
     new_tlog = runner.BenchmarkLog.load_from_json_file(filepath)
     assert new_tlog.configdata == configdata
@@ -251,10 +251,10 @@ def test_benchmarklog_compilereport(configdata):
     }
     aggregate_search_groups = {
         'no facets GROUP': [
-            l for l in tlog.search_stats if l.startswith('no facets')
+            key for key in tlog.search_stats if key.startswith('no facets')
         ],
         'all facets GROUP': [
-            l for l in tlog.search_stats if l.startswith('all facets')
+            key for key in tlog.search_stats if key.startswith('all facets')
         ],
     }
     expected_report = {

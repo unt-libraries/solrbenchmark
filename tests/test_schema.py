@@ -1,6 +1,6 @@
 """Contains tests for `schema` module."""
 import pytest
-from fauxdoc.emitters.choice import chance, Choice, poisson_choice
+from fauxdoc.emitters.choice import chance, Choice
 from fauxdoc.emitters.fixed import Iterative, Sequential, Static
 from fauxdoc.emitters.fromfields import CopyFields
 from fauxdoc.emitters.text import Text, Word
@@ -56,7 +56,7 @@ def default_emitters():
 @pytest.fixture
 def facet_term_emitter():
     return text(1, 4, keyword(word(2, 5, LETTERS)))
-    
+
 
 @pytest.fixture
 def count_terms_in_results():
@@ -243,7 +243,7 @@ def count_terms_in_results():
          [None, ['MUL _zzz_ TI', 'MULTI MULTI MULTI'], None, None,
           ['MULTI MULTI MULTI', 'MU _vvv_ LTI MULTI'],
           ['MUL _ccc_ TI MULTI MULTI'], None, ['M _sss_ ULTI'], None, None]),
-        (999, 'copy_multi_gate', None, None, 1.0, 0, 
+        (999, 'copy_multi_gate', None, None, 1.0, 0,
          [None, ['MULTIGATE MULTIGATE MULTIGA _zzz_ TE'], None,
           ['MULTIGATE', 'MULTIGATE MULTI _vvv_ GATE MULTIGATE'],
           ['MULTIGATE  _ccc_ MULTIGATE', 'MULTIGATE MULTIGATE'],
@@ -573,7 +573,7 @@ def test_benchmarkschema_configure_check():
     for sfield in myschema.search_fields.values():
         assert sfield.terms is None
         assert sfield.term_emitter is None
-    
+
     myschema.configure(1000, search_term_emitter, term_doc_ratio=0.5,
                        overwrite_chance=0.5, rng_seed=999)
     assert myschema.search_terms is not None
@@ -752,51 +752,51 @@ def test_benchmarkschema_inj_chances(td_ratio, max_per_field, expected):
               '1829': 1, '2020': 1, '1973': 1, '1841': 1}},
          {'main_author': 20,
           'year': 15},
-        [{'id': 'b1', 'title': None, 'main_author': None, 'year': '1926',
-          'contributors': None, 'meeting': None, 'title_search': None,
-          'author_search': None, 'meeting_search': None},
-         {'id': 'b2', 'title': 'TITLE', 'main_author': 'HRAOMIQ SHKZ',
-          'year': '1993', 'contributors': ['UCWOMD UIU VCZEGOS', 'GWZFQ BAFZN',
-                                           'ERE XOYMST DQMT'],
-          'meeting': None, 'title_search': ['TITLE'],
-          'author_search': ['HRAOMIQ SHKZ', 'UCWOMD UIU VCZEGOS',
-                            'GWZFQ BAFZN', 'ERE XOYMST DQMT'],
-          'meeting_search': None},
-         {'id': 'b3', 'title': None, 'main_author': None, 'year': None,
-          'contributors': None, 'meeting': None, 'title_search': None,
-          'author_search': None, 'meeting_search': None},
-         {'id': 'b4', 'title': 'TITLE TITLE', 'main_author': 'UOWZ BJIUB',
-          'year': '1908', 'contributors': None, 'meeting': None,
-          'title_search': ['_bbb_'], 'author_search': ['_jjj_'],
-          'meeting_search': None},
-         {'id': 'b5', 'title': 'TITLE TITLE',
-          'main_author': 'QFY LCGCGA YVFHL', 'year': '1977',
-          'contributors': None, 'meeting': None,
-          'title_search': ['TITLE TITLE'],
-          'author_search': ['QFY LCGCGA YVFHL'], 'meeting_search': None},
-         {'id': 'b6', 'title': 'TITLE', 'main_author': 'ERE XOYMST DQMT',
-          'year': '1927', 'contributors': ['GCVGUH NBULCXO EFU'],
-          'meeting': None, 'title_search': ['T _jjj_ ITLE'],
-          'author_search': ['ERE XOYMST DQ _iii_ MT', 'GCVGUH NBULCXO EFU'],
-          'meeting_search': None},
-         {'id': 'b7', 'title': None, 'main_author': None, 'year': '1858',
-          'contributors': None, 'meeting': None, 'title_search': None,
-          'author_search': None, 'meeting_search': None},
-         {'id': 'b8', 'title': 'TITLE TITLE',
-          'main_author': 'QXBLUY RGCV CMDUKLB', 'year': '1821',
-          'contributors': ['FNHGPWX ZAN', 'UOWZ BJIUB QXBLUY',
-                           'RGCV CMDUKLB ZPCHLZW'],
-          'meeting': None, 'title_search': ['TITL _hhh_ E TITLE'],
-          'author_search': ['QXBLUY RGCV CMDUKLB', 'FNHGPWX ZAN',
-                            'U _hhh_ OWZ BJIUB QXBLUY',
+         [{'id': 'b1', 'title': None, 'main_author': None, 'year': '1926',
+           'contributors': None, 'meeting': None, 'title_search': None,
+           'author_search': None, 'meeting_search': None},
+          {'id': 'b2', 'title': 'TITLE', 'main_author': 'HRAOMIQ SHKZ',
+           'year': '1993', 'contributors': ['UCWOMD UIU VCZEGOS',
+                                            'GWZFQ BAFZN', 'ERE XOYMST DQMT'],
+           'meeting': None, 'title_search': ['TITLE'],
+           'author_search': ['HRAOMIQ SHKZ', 'UCWOMD UIU VCZEGOS',
+                             'GWZFQ BAFZN', 'ERE XOYMST DQMT'],
+           'meeting_search': None},
+          {'id': 'b3', 'title': None, 'main_author': None, 'year': None,
+           'contributors': None, 'meeting': None, 'title_search': None,
+           'author_search': None, 'meeting_search': None},
+          {'id': 'b4', 'title': 'TITLE TITLE', 'main_author': 'UOWZ BJIUB',
+           'year': '1908', 'contributors': None, 'meeting': None,
+           'title_search': ['_bbb_'], 'author_search': ['_jjj_'],
+           'meeting_search': None},
+          {'id': 'b5', 'title': 'TITLE TITLE',
+           'main_author': 'QFY LCGCGA YVFHL', 'year': '1977',
+           'contributors': None, 'meeting': None,
+           'title_search': ['TITLE TITLE'],
+           'author_search': ['QFY LCGCGA YVFHL'], 'meeting_search': None},
+          {'id': 'b6', 'title': 'TITLE', 'main_author': 'ERE XOYMST DQMT',
+           'year': '1927', 'contributors': ['GCVGUH NBULCXO EFU'],
+           'meeting': None, 'title_search': ['T _jjj_ ITLE'],
+           'author_search': ['ERE XOYMST DQ _iii_ MT', 'GCVGUH NBULCXO EFU'],
+           'meeting_search': None},
+          {'id': 'b7', 'title': None, 'main_author': None, 'year': '1858',
+           'contributors': None, 'meeting': None, 'title_search': None,
+           'author_search': None, 'meeting_search': None},
+          {'id': 'b8', 'title': 'TITLE TITLE',
+           'main_author': 'QXBLUY RGCV CMDUKLB', 'year': '1821',
+           'contributors': ['FNHGPWX ZAN', 'UOWZ BJIUB QXBLUY',
                             'RGCV CMDUKLB ZPCHLZW'],
-          'meeting_search': None},
-         {'id': 'b9', 'title': None, 'main_author': None, 'year': '1976',
-          'contributors': None, 'meeting': None, 'title_search': None,
-          'author_search': None, 'meeting_search': None},
-         {'id': 'b10', 'title': None, 'main_author': None, 'year': None,
-          'contributors': None, 'meeting': None, 'title_search': None,
-          'author_search': None, 'meeting_search': None}]
+           'meeting': None, 'title_search': ['TITL _hhh_ E TITLE'],
+           'author_search': ['QXBLUY RGCV CMDUKLB', 'FNHGPWX ZAN',
+                             'U _hhh_ OWZ BJIUB QXBLUY',
+                             'RGCV CMDUKLB ZPCHLZW'],
+           'meeting_search': None},
+          {'id': 'b9', 'title': None, 'main_author': None, 'year': '1976',
+           'contributors': None, 'meeting': None, 'title_search': None,
+           'author_search': None, 'meeting_search': None},
+          {'id': 'b10', 'title': None, 'main_author': None, 'year': None,
+           'contributors': None, 'meeting': None, 'title_search': None,
+           'author_search': None, 'meeting_search': None}]
          ),
     ]
 )

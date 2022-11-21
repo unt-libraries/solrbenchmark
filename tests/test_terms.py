@@ -42,7 +42,7 @@ from solrbenchmark import terms
 def test_termchoice_emit_once_as_batch(seed, choice_emitter, expected,
                                        term_selection_sanity_check):
     tc_emitter = terms.TermChoice(choice_emitter, rng_seed=seed)
-    result = tc_emitter(len(expected)) 
+    result = tc_emitter(len(expected))
     assert result == expected
     term_selection_sanity_check(result, choice_emitter.items, True)
 
@@ -125,10 +125,10 @@ def test_makevocabulary_not_enough_unique(emitter, vocab_size):
      ['cillum ad', 'anim cillum', 'commodo anim', 'ad consectetur',
       'aliqua commodo', 'cillum aliquip', 'cillum commodo', 'amet adipiscing',
       'adipiscing aliqua', 'consectetur aliqua', 'cillum ad commodo',
-      'anim amet adipiscing', 'cillum aliquip cillum', 'adipiscing aliqua anim',
-      'commodo ad consectetur', 'cillum ad commodo anim',
-      'cillum commodo ad consectetur', 'amet adipiscing cillum aliquip',
-      'cillum ad commodo anim amet',
+      'anim amet adipiscing', 'cillum aliquip cillum',
+      'adipiscing aliqua anim', 'commodo ad consectetur',
+      'cillum ad commodo anim', 'cillum commodo ad consectetur',
+      'amet adipiscing cillum aliquip', 'cillum ad commodo anim amet',
       'adipiscing cillum aliquip cillum commodo']),
     (999, Choice('abcd'), [5, 3, 2],
      ['b a', 'd a', 'd b', 'd c', 'd d', 'c b a', 'd a d', 'd b d', 'b a d b',

@@ -247,7 +247,7 @@ class BenchmarkRunner:
             commit_qtime = _scrape_qtime(commit_response)
             timings.append(('committing', commit_qtime))
             return timings
-        
+
         if not self.is_configured:
             raise RunnerConfigurationError(
                 'Attempted to run tests without adding configuration data via '

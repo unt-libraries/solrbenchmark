@@ -112,7 +112,7 @@ def test_fileset_create_terms(search, facet, tmpdir, fileset_check):
 def test_fileset_get_saved_terms(search, facet, tmpdir, fileset_check):
     fset = docs.FileSet(tmpdir, 'testing_saved_terms')
     fset.save_terms(search, facet)
-    del(fset)
+    del fset
     load_fset = docs.FileSet(tmpdir, 'testing_saved_terms')
     fileset_check(load_fset, termsfile_exists=True, termsfile_is_empty=False,
                   exp_search=search, exp_facet=facet)
@@ -140,7 +140,7 @@ def test_fileset_create_counts(tdocs, fv_counts, tmpdir, fileset_check):
 def test_fileset_get_saved_counts(tdocs, fv_counts, tmpdir, fileset_check):
     fset = docs.FileSet(tmpdir, 'testing_saved_counts')
     fset.save_counts(tdocs, fv_counts)
-    del(fset)
+    del fset
     load_fset = docs.FileSet(tmpdir, 'testing_saved_counts')
     fileset_check(load_fset, countsfile_exists=True, countsfile_is_empty=False,
                   exp_tdocs=tdocs, exp_fvcounts=fv_counts)
@@ -178,7 +178,7 @@ def test_fileset_save_and_overwrite_terms(old_search, old_facet, new_search,
     docset_id = 'testing_saving_and_overwriting_terms'
     fset = docs.FileSet(tmpdir, docset_id)
     fset.save_terms(old_search, old_facet)
-    del(fset)
+    del fset
 
     # Then we load the fileset with that ID, make sure the old terms
     # were saved, and save a new set of terms.
@@ -187,7 +187,7 @@ def test_fileset_save_and_overwrite_terms(old_search, old_facet, new_search,
                   termsfile_is_empty=False, exp_search=old_search,
                   exp_facet=old_facet)
     loaded_base_fset.save_terms(new_search, new_facet)
-    del(loaded_base_fset)
+    del loaded_base_fset
 
     # Finally, for good measure, we load up a third FileSet using that
     # ID to check and make sure we're loading the new terms.
@@ -209,20 +209,21 @@ def test_fileset_save_and_overwrite_terms(old_search, old_facet, new_search,
     (5, {'something': [('one', 100)]}, 0, {}),
 ])
 def test_fileset_save_and_overwrite_counts(old_tdocs, old_fvcounts, new_tdocs,
-                                          new_fvcounts, tmpdir, fileset_check):
+                                           new_fvcounts, tmpdir,
+                                           fileset_check):
     # Calling `save_counts` should overwrite any existing counts. This
     # test works the same way as the previous test.
     docset_id = 'testing_saving_and_overwriting_counts'
     fset = docs.FileSet(tmpdir, docset_id)
     fset.save_counts(old_tdocs, old_fvcounts)
-    del(fset)
+    del fset
 
     loaded_base_fset = docs.FileSet(tmpdir, docset_id)
     fileset_check(loaded_base_fset, countsfile_exists=True,
                   countsfile_is_empty=False, exp_tdocs=old_tdocs,
                   exp_fvcounts=old_fvcounts)
     loaded_base_fset.save_counts(new_tdocs, new_fvcounts)
-    del(loaded_base_fset)
+    del loaded_base_fset
 
     loaded_changed_fset = docs.FileSet(tmpdir, docset_id)
     exp_new_tdocs = old_tdocs if new_tdocs is None else new_tdocs
@@ -254,7 +255,7 @@ def test_fileset_get_saved_docs(tmpdir, fileset_check):
                  {'id': 2, 'title': 'Test Doc 2', 'tags': None}]
     fset = docs.FileSet(tmpdir, docset_id)
     _ = list(fset.stream_docs_to_file(test_docs))
-    del(fset)
+    del fset
     loaded_fset = docs.FileSet(tmpdir, docset_id)
     fileset_check(loaded_fset, docsfile_exists=True, docsfile_is_empty=False,
                   exp_docs=test_docs)
@@ -288,7 +289,7 @@ def test_fileset_save_then_overwrite_docs(tmpdir, fileset_check):
     # First create the original base file with the old docset.
     fset = docs.FileSet(tmpdir, docset_id)
     _ = list(fset.stream_docs_to_file(old_docs))
-    del(fset)
+    del fset
 
     # Then load that into a new FileSet object, check it, and then
     # stream the new docset, using overwrite=True.
@@ -296,7 +297,7 @@ def test_fileset_save_then_overwrite_docs(tmpdir, fileset_check):
     fileset_check(loaded_base_fset, docsfile_exists=True,
                   docsfile_is_empty=False, exp_docs=old_docs)
     _ = list(loaded_base_fset.stream_docs_to_file(new_docs, overwrite=True))
-    del(loaded_base_fset)
+    del loaded_base_fset
 
     # Finally, load the same docset_id into a new FileSet object and make
     # sure the new docset was saved.
@@ -317,7 +318,7 @@ def test_fileset_save_then_append_docs(tmpdir, fileset_check):
     # First create the original base file with the old docset.
     fset = docs.FileSet(tmpdir, docset_id)
     _ = list(fset.stream_docs_to_file(old_docs))
-    del(fset)
+    del fset
 
     # Then load that into a new FileSet object, confirm the old docset
     # is there, and stream the new docset using overwrite=False.
@@ -325,7 +326,7 @@ def test_fileset_save_then_append_docs(tmpdir, fileset_check):
     fileset_check(loaded_base_fset, docsfile_exists=True,
                   docsfile_is_empty=False, exp_docs=old_docs)
     _ = list(loaded_base_fset.stream_docs_to_file(new_docs, overwrite=False))
-    del(loaded_base_fset)
+    del loaded_base_fset
 
     # Finally, load that docset_id into a new FileSet object and make
     # sure the saved docset is the old one + the new one.
@@ -396,7 +397,7 @@ def test_fileset_multiple_different_filesets_at_once(tmpdir, fileset_check):
                       countsfile_exists=True, countsfile_is_empty=False,
                       exp_search=sterms, exp_facet=fterms, exp_docs=testdocs,
                       exp_tdocs=totdocs, exp_fvcounts=fv_counts)
-        del(fset)
+        del fset
 
     # Then load each FileSet and check to make sure it contains the
     # expected data.
@@ -446,7 +447,7 @@ def test_docset_init(docset_check):
       {'id': 2, 'title': 'Test 2', 'colors': ['red', 'green']},
       {'id': 3, 'title': 'Test 3', 'colors': 'green'},
       {'id': 4, 'title': 'Test 4', 'colors': ['blue', 'green']},
-      {'id': 5, 'title': 'Test 5', 'colors': ['red'],},
+      {'id': 5, 'title': 'Test 5', 'colors': ['red']},
       {'id': 6, 'title': 'Test 6', 'colors': ['yellow', 'blue', 'red']}],
      {'colors': [4, 3, 3, 2]},
      {'colors': [('red', 4), ('blue', 3), ('green', 3), ('yellow', 2)]}),
@@ -483,11 +484,11 @@ def test_docset_init(docset_check):
 def test_schemaadapter_facet_counts(fterms, test_docs, exp_fcounts,
                                     exp_fcounts_vals, docset_check):
     mock_schema = Mock(
-        num_docs = len(test_docs),
-        facet_fields = {
+        num_docs=len(test_docs),
+        facet_fields={
             fn: Mock(terms=terms) for fn, terms in fterms.items()
         },
-        search_terms = ['one', 'two']
+        search_terms=['one', 'two']
     )
     for fn, mock_field in mock_schema.facet_fields.items():
         mock_field.name = fn
@@ -567,7 +568,7 @@ def test_docset_fromschema_w_savepath(tmpdir, fileset_check, simple_schema):
     # using the 'savepath' argument should stream / save docs to disk.
     # Also, reusing that same DocSet should subsequently loop through
     # the saved docs rather than generating (and saving) a new docset.
-    # 
+    #
     # In other words: default behavior should be that the schema
     # generates and saves documents on the first pass and reuses them
     # (either from disk or from memory) on subsequent passes, without
