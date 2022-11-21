@@ -301,10 +301,6 @@ class SchemaToFileSetLikeAdapter:
     def schema(self):
         return self._schema
 
-    @schema.setter
-    def schema(self, schema):
-        self._reset_fileset()
-
     @property
     def search_terms(self):
         return self.schema.search_terms
