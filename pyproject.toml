@@ -54,7 +54,7 @@ local_scheme = "no-local-version"
 [tool.tox]
 legacy_tox_ini = """
 [tox]
-envlist = py{37,38,39,310,311}-{oldest,latest}
+envlist = flake8,pylint_critical,py{37,38,39,310,311}-{oldest,latest}
 isolated_build = True
 
 [testenv]
