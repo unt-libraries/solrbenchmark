@@ -1,44 +1,52 @@
-[tool.poetry]
+[build-system]
+requires = ["setuptools>=64.0.0", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
 name = "solrbenchmark"
-version = "0.1"
 description = "Python package for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and logging results."
 readme = "README.md"
-authors = ["Jason Thomale <jason.thomale@unt.edu>"]
-packages = [
-    { include = "solrbenchmark", from = "src"}
+authors = [{name = "Jason Thomale", email = "jason.thomale@unt.edu"}]
+keywords = ["Solr", "testing", "benchmarking", "data"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: BSD License",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.7",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Testing",
+]
+dynamic = ["version"]
+requires-python = ">=3.7"
+dependencies = [
+    'fauxdoc >= 1.0.0',
+    'ujson >= 4.2.0; python_version >= "3.10"',
+    'ujson >= 4.0.0; python_version == "3.9"',
+    'ujson >= 2.0.0; python_version <= "3.8"',
+    # For Python >=3.8 we use importlib.metadata to get the installed
+    # package version so we can use pyproject.toml as the single source
+    # of truth for the version number. This was new in 3.8, so for 3.7
+    # we have to use importlib_metadata.
+    'importlib_metadata >= 2.0.0; python_version == "3.7"'
 ]
 
-[tool.poetry.dependencies]
-python = "^3.7"
-solrfixtures = [
-    { git = "git@content.library.unt.edu:utilities/pypackages/solrfixtures.git", rev = "refactor" }
-]
-ujson = [
-    { version = ">=4.2.0", python = "^3.10" },
-    { version = ">=4.0.0", python = "~3.9" },
-    { version = ">=2.0.0", python = "~3.7 || ~3.8" }
-]
-typing_extensions = [
-    { version = "^4.1.1", python = "~3.7" }
-]
-pysolr = [
-    { version = ">=3.9.0", python = ">=3.7" }
-]
-pytest = [
-    { version = ">=6.2.5", python = "^3.10", optional = true },
-    { version = ">=5.4.2", python = "~3.9",  optional = true },
-    { version = ">=5.1.0", python= "~3.7 || ~3.8", optional = true }
-]
-python-dotenv = [
-    { version = ">=0.19.1", python = "^3.10", optional = true },
-    { version = ">=0.15.0", python = "~3.9", optional = true },
-    { version = ">=0.11.0", python = "~3.8", optional = true },
-    { version = ">=0.10.3", python = "~3.7", optional = true }
+[project.optional-dependencies]
+dev = [
+    'pytest >= 6.2.4; python_version >= "3.10"',
+    'pytest >= 3.0.0; python_version < "3.10"',
+    'pysolr >= 3.9.0',
+    'python-dotenv >= 0.19.1; python_version >= "3.10"',
+    'python-dotenv >= 0.15.0; python_version == "3.9"',
+    'python-dotenv >= 0.11.0; python_version == "3.8"',
+    'python-dotenv >= 0.10.3; python_version == "3.7"'
 ]
 
-[tool.poetry.extras]
-test = ["pytest", "python-dotenv"]
-
-[build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+[tool.setuptools_scm]
+local_scheme = "no-local-version"

@@ -1,11 +1,11 @@
-"""Contains solrfixture schema components for benchmarking."""
+"""Contains schema components for benchmarking."""
 import sys
 
-from solrfixtures.emitters.choice import chance as chance_em, gaussian_choice
-from solrfixtures.emitters.fixed import Static
-from solrfixtures.group import ObjectMap
-from solrfixtures.mathtools import clamp
-from solrfixtures.profile import Field, Schema
+from fauxdoc.emitters.choice import chance as chance_em, gaussian_choice
+from fauxdoc.emitters.fixed import Static
+from fauxdoc.group import ObjectMap
+from fauxdoc.mathtools import clamp
+from fauxdoc.profile import Field, Schema
 
 from solrbenchmark import terms
 

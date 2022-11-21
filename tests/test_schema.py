@@ -1,11 +1,11 @@
 """Contains tests for `schema` module."""
 import pytest
-from solrfixtures.emitters.choice import chance, Choice, poisson_choice
-from solrfixtures.emitters.fixed import Iterative, Sequential, Static
-from solrfixtures.emitters.fromfields import CopyFields
-from solrfixtures.emitters.text import Text, Word
-from solrfixtures.emitters.wrappers import WrapOne
-from solrfixtures.profile import Field
+from fauxdoc.emitters.choice import chance, Choice, poisson_choice
+from fauxdoc.emitters.fixed import Iterative, Sequential, Static
+from fauxdoc.emitters.fromfields import CopyFields
+from fauxdoc.emitters.text import Text, Word
+from fauxdoc.emitters.wrappers import WrapOne
+from fauxdoc.profile import Field
 
 from conftest import LETTERS
 from solrbenchmark import schema

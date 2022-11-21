@@ -1,13 +1,13 @@
 """
 Create sets of terms (facets, search terms) to use in benchmark tests.
 """
-from solrfixtures.mathtools import clamp
-from solrfixtures.emitter import Emitter
-from solrfixtures.emitters.choice import Choice, chance, gaussian_choice
-from solrfixtures.emitters.fixed import Static
-from solrfixtures.emitters.text import Text
-from solrfixtures.group import ObjectMap
-from solrfixtures.mixins import ItemsMixin, RandomMixin
+from fauxdoc.mathtools import clamp
+from fauxdoc.emitter import Emitter
+from fauxdoc.emitters.choice import Choice, chance, gaussian_choice
+from fauxdoc.emitters.fixed import Static
+from fauxdoc.emitters.text import Text
+from fauxdoc.group import ObjectMap
+from fauxdoc.mixins import ItemsMixin, RandomMixin
 
 
 class TermChoice(ItemsMixin, RandomMixin, Emitter):

@@ -2,10 +2,10 @@
 from dotenv import dotenv_values
 import pysolr
 import pytest
-from solrfixtures.emitters.choice import chance, Choice
-from solrfixtures.emitters.fixed import Iterative, Sequential, Static
-from solrfixtures.emitters.fromfields import CopyFields
-from solrfixtures.profile import Field
+from fauxdoc.emitters.choice import chance, Choice
+from fauxdoc.emitters.fixed import Iterative, Sequential, Static
+from fauxdoc.emitters.fromfields import CopyFields
+from fauxdoc.profile import Field
 
 from solrbenchmark import schema, runner
 

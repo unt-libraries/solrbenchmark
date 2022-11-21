@@ -1,8 +1,8 @@
 """Contains tests for `terms` module."""
 import pytest
-from solrfixtures.emitters.choice import Choice
-from solrfixtures.emitters.fixed import Sequential, Static
-from solrfixtures.emitters.text import Word
+from fauxdoc.emitters.choice import Choice
+from fauxdoc.emitters.fixed import Sequential, Static
+from fauxdoc.emitters.text import Word
 
 from conftest import LOREM_IPSUM
 from solrbenchmark import terms
@@ -20,7 +20,7 @@ from solrbenchmark import terms
 
 # Note: For testing the TermChoice emitter, we have separate tests for
 # emitting in batch versus one-at-a-time because
-# solrfixtures.emitters.choice.Choice values will differ between the
+# fauxdoc.emitters.choice.Choice values will differ between the
 # two versions, given the same seed. (This isn't a bug -- Choice picks
 # the most efficient algorithm when you emit values, which can result
 # in different output for a batch versus one-at-a-time.)
