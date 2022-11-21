@@ -193,9 +193,17 @@ class FileSet:
 
     def clear(self):
         """Clears out this FileSet and deletes the files."""
-        self._terms_fpath.unlink(missing_ok=True)
-        self._docs_fpath.unlink(missing_ok=True)
-        self._counts_fpath.unlink(missing_ok=True)
+        # The below try/except block is needed to support Python 3.7.
+        # On 3.8+, we can use `fpath.unlink(missing_ok=True)` to
+        # try to delete the file while silencing "not found" errors.
+        # But this is not available on 3.7. So we have to catch and
+        # ignore the error, instead.
+        try:
+            self._terms_fpath.unlink()
+            self._docs_fpath.unlink()
+            self._counts_fpath.unlink()
+        except FileNotFoundError:
+            pass
         self._search_terms = None
         self._facet_terms = None
         self._total_docs = None

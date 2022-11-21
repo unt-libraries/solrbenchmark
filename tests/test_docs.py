@@ -357,6 +357,22 @@ def test_fileset_clear_files(tmpdir, fileset_check):
                   exp_tdocs=None, exp_fvcounts=None)
 
 
+def test_fileset_clear_nonexistent_files(tmpdir, fileset_check):
+    # If `clear` is called but files do not yet exist, no errors should
+    # be raised.
+    docset_id = 'testing_clearing_nonexistent_files'
+    search_terms = ['one', 'two']
+    facet_terms = {'test_facet': ['one', 'two', 'three']}
+    fset = docs.FileSet(tmpdir, docset_id)
+    fset.save_terms(search_terms, facet_terms)
+    fset.clear()
+    fileset_check(fset, termsfile_exists=False, termsfile_is_empty=True,
+                  docsfile_exists=False, docsfile_is_empty=True,
+                  countsfile_exists=False, countsfile_is_empty=True,
+                  exp_search=None, exp_facet=None, exp_docs=None,
+                  exp_tdocs=None, exp_fvcounts=None)
+
+
 def test_fileset_multiple_different_filesets_at_once(tmpdir, fileset_check):
     # Filesets are identified by their basepath and id; you can have
     # different filesets at one time at the same basepath, provided
