@@ -13,20 +13,41 @@ from solrbenchmark import docs, runner
 @pytest.fixture
 def new_mockconn():
     """Fixture: returns a func for generating a mock Solr connection."""
-    def _new_mockconn(terms_hits_qts):
-        term_qt_gens = {}
+    def _new_mockconn(index_qts=None, commit_qts=None, terms_hits_qts=None):
+        index_qt_iter = iter(index_qts or [])
+        commit_qt_iter = iter(commit_qts or [])
+        term_qt_iters = {}
         term_hits = {}
-        for term, hits_qts in terms_hits_qts.items():
+        for term, hits_qts in (terms_hits_qts or {}).items():
             term = term or ''
             hits, qtimes = hits_qts
-            term_qt_gens[term] = (qt for qt in qtimes)
+            term_qt_iters[term] = iter(qtimes)
             term_hits[term] = hits
 
-        def _side_effect(q='', **kwargs):
-            return Mock(qtime=next(term_qt_gens[q]), hits=term_hits[q])
+        def _search_response(q='', **kwargs):
+            qt_iter = term_qt_iters.get(q) or iter([])
+            return Mock(qtime=next(qt_iter, 0), hits=term_hits.get(q, 0))
+
+        def _add_response(docs, **kwargs):
+            return (f'{{\n'
+                    f'  "responseHeader":{{\n'
+                    f'    "status":0,\n'
+                    f'    "QTime":{next(index_qt_iter, 0)}}}}}\n')
+
+        def _commit_response(**kwargs):
+            return (f'<?xml version="1.0" encoding="UTF-8"?>\n'
+                    f'<response>\n'
+                    f'\n'
+                    f'<lst name="responseHeader">\n'
+                    f'  <int name="status">0</int>\n'
+                    f'  <int name="QTime">{next(commit_qt_iter, 0)}</int>\n'
+                    f'</lst>\n'
+                    f'</response>\n')
 
         mockconn = Mock()
-        mockconn.search.side_effect = _side_effect
+        mockconn.search.side_effect = _search_response
+        mockconn.add.side_effect = _add_response
+        mockconn.commit.side_effect = _commit_response
         return mockconn
     return _new_mockconn
 
@@ -58,70 +79,12 @@ def indexstats_sanity_check():
     return _indexstats_sanity_check
 
 
-@pytest.fixture
-def assert_index_matches_docslist():
-    """Fixture: returns a func for checking contents of a Solr index."""
-    def _assert_index_matches_docslist(docslist, conn):
-        results = list(conn.search('*:*', rows=len(docslist), sort='id asc'))
-
-        # Solr does not return None for blank fields, so we have to
-        # remove them from the expected docslist.
-        exp_results = [
-            {k: v for k, v in doc.items() if v is not None}
-            for doc in docslist
-        ]
-        assert results == sorted(exp_results, key=lambda d: d['id'])
-    return _assert_index_matches_docslist
-
-
-@pytest.fixture
-def test_doc_data():
-    """Fixture: returns some data to use with simple_schema for tests."""
-    return [
-        {'id': '1', 'title': 'Test Doc 1', 'colors': ['grey', 'brown', 'blue'],
-         'pattern': 'striped', 'title_search': '_aaa_ Test Doc 1',
-         'colors_search': ['grey _ddd_', 'brown', '_bbb_'],
-         'pattern_search': 'striped'},
-        {'id': '2', 'title': 'Test Doc 2', 'colors': ['white', 'purple'],
-         'pattern': 'checkered', 'title_search': '_ccc_ _bbb_',
-         'colors_search': ['_ddd_', 'purple', 'red'],
-         'pattern_search': 'checkered'},
-        {'id': '3', 'title': 'Test Doc 3',
-         'colors': ['black', 'yellow', 'orange'], 'pattern': 'plaid',
-         'title_search': '_eee_',
-         'colors_search': ['black', 'yellow', 'orange'],
-         'pattern_search': 'plaid'},
-        {'id': '4', 'title': 'Test Doc 4', 'colors': ['green', 'brown'],
-         'pattern': 'solid', 'title_search': 'Test Doc 4',
-         'colors_search': ['green _ccc_', 'brown', 'brown _eee_'],
-         'pattern_search': 'solid'},
-        {'id': '5', 'title': 'Test Doc 5', 'pattern': 'paisley',
-         'title_search': 'Test Doc 5', 'pattern_search': 'paisley _eee_'},
-        {'id': '6', 'title': 'Test Doc 6', 'colors': ['brown'],
-         'pattern': 'striped', 'title_search': 'Test Doc 6',
-         'colors_search': ['brown', 'br _fff_ own _eee_'],
-         'pattern_search': 'striped'},
-        {'id': '7', 'title': 'Test Doc 7', 'pattern': 'striped',
-         'title_search': 'Test Doc 7', 'pattern_search': 'striped'},
-        {'id': '8', 'title': 'Test Doc 8', 'colors': ['grey'],
-         'pattern': 'striped', 'title_search': '_ggg_ _ddd_',
-         'colors_search': ['grey'], 'pattern_search': 'striped'},
-        {'id': '9', 'title': 'Test Doc 9', 'colors': ['brown'],
-         'pattern': 'striped', 'title_search': '_hhh_ _ddd_',
-         'colors_search': ['_eee_'], 'pattern_search': 'striped'},
-        {'id': '10', 'title': 'Test Doc 10', 'colors': ['grey', 'blue'],
-         'pattern': 'checkered', 'title_search': 'Test Doc 10',
-         'colors_search': ['grey', '_ccc_ blue'],
-         'pattern_search': 'checkered'}]
-
-
 # Note: built-in pytest fixture `tmpdir` is used for some tests. This
 # creates a unique temporary directory for each test instance for
 # testing file I/O. Files do NOT persist between tests.
 #
 # Additional fixtures defined in `conftest.py` are used:
 #    simple_schema
-#    solrconn
 #    configdata
 
 
@@ -300,8 +263,9 @@ def test_benchmarklog_compilereport(configdata):
     assert tlog.compile_report(aggregate_search_groups) == expected_report
 
 
-def test_benchmarkrunner_no_logbasepath_save_error(configdata, solrconn):
-    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+def test_benchmarkrunner_no_logbasepath_save_error(configdata, new_mockconn):
+    mockconn = new_mockconn()
+    trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     with pytest.raises(ValueError) as excinfo:
         trunner.save_log()
     assert str(excinfo.value).startswith(
@@ -309,10 +273,12 @@ def test_benchmarkrunner_no_logbasepath_save_error(configdata, solrconn):
     )
 
 
-def test_benchmarkrunner_save_logfile_behavior(configdata, solrconn, tmpdir):
+def test_benchmarkrunner_save_logfile_behavior(configdata, new_mockconn,
+                                               tmpdir):
     # This tests saving a logfile in various states using a realistic
     # multi-step workflow.
-    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+    mockconn = new_mockconn()
+    trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     exp_filepath = Path(runner.compose_log_json_filepath(
         tmpdir, 'test', configdata.config_id
     ))
@@ -348,7 +314,8 @@ def test_benchmarkrunner_save_logfile_behavior(configdata, solrconn, tmpdir):
     assert log2.search_stats == {'b': 'test b'}
 
 
-def test_benchmarkrunner_load_logfile_behavior(configdata, solrconn, tmpdir):
+def test_benchmarkrunner_load_logfile_behavior(configdata, new_mockconn,
+                                               tmpdir):
     # Q: What if you want to re-run search tests for a specific config
     # but preserve the indexing tests that were already run?
     # A: Use `configure_from_saved_log` to load the logfile from disk.
@@ -365,7 +332,8 @@ def test_benchmarkrunner_load_logfile_behavior(configdata, solrconn, tmpdir):
 
     # Now create a BenchmarkRunner and load the configuration from that
     # saved file. (Confirm that it loaded correctly.)
-    trunner = runner.BenchmarkRunner(solrconn).configure_from_saved_log(lpath)
+    mockconn = new_mockconn()
+    trunner = runner.BenchmarkRunner(mockconn).configure_from_saved_log(lpath)
     assert trunner.logpath == lpath
     assert trunner.log_basepath == lpath.parent
     assert trunner.log.docset_id == 'test'
@@ -385,7 +353,8 @@ def test_benchmarkrunner_load_logfile_behavior(configdata, solrconn, tmpdir):
     assert new_log.search_stats == {'c': 'new search stats'}
 
 
-def test_benchmarkrunner_logpath_updates_itself(configdata, solrconn, tmpdir):
+def test_benchmarkrunner_logpath_updates_itself(configdata, new_mockconn,
+                                                tmpdir):
     # Q: Can you use the same test runner to run multiple tests and
     # just re-configure it each time? Does it save to different files
     # or do you have to manage that yourself?
@@ -400,9 +369,10 @@ def test_benchmarkrunner_logpath_updates_itself(configdata, solrconn, tmpdir):
     old_log.search_stats = {'b': 'original search stats'}
     old_log.save_to_json_file(lpath)
 
-    trunner1 = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+    mockconn = new_mockconn()
+    trunner1 = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     trunner1.log_basepath = tmpdir
-    trunner2 = runner.BenchmarkRunner(solrconn).configure_from_saved_log(lpath)
+    trunner2 = runner.BenchmarkRunner(mockconn).configure_from_saved_log(lpath)
     assert trunner1.logpath == trunner2.logpath == lpath
 
     trunner1.configure('t2', configdata)
@@ -418,33 +388,39 @@ def test_benchmarkrunner_logpath_updates_itself(configdata, solrconn, tmpdir):
     )
 
 
-def test_benchmarkrunner_indexdocs(configdata, simple_schema, solrconn,
-                                   indexstats_sanity_check,
-                                   assert_index_matches_docslist):
-    assert_index_matches_docslist([], solrconn)
+def test_benchmarkrunner_indexdocs(configdata, simple_schema, new_mockconn,
+                                   indexstats_sanity_check):
     batch_size = 10
     num_docs = 50
     myschema = simple_schema(num_docs, 0.5, 0.5, 999)
     docslist = [myschema() for _ in range(myschema.num_docs)]
     myschema.reset_fields()
     tdocset = docs.DocSet.from_schema('test-docset', myschema)
-    tr = runner.BenchmarkRunner(solrconn).configure(tdocset.id, configdata)
+    mockconn = new_mockconn(index_qts=[9372, 2295, 11972, 5060, 8333],
+                            commit_qts=[542, 368, 270, 985, 104])
+    tr = runner.BenchmarkRunner(mockconn).configure(tdocset.id, configdata)
     stats = tr.index_docs(tdocset, batch_size=batch_size, verbose=True)
     indexstats_sanity_check(stats, batch_size, myschema.num_docs)
     assert tr.log.indexing_stats == stats
-    assert_index_matches_docslist(docslist, solrconn)
+    mockconn.add.assert_has_calls(
+        [call(docslist[i:i+batch_size], commit=False)
+         for i in range(0, num_docs, batch_size)]
+    )
+    mockconn.commit.assert_has_calls([call()] * int(num_docs / batch_size))
 
 
-def test_benchmarkrunner_indexdocs_not_configured(solrconn):
-    trunner = runner.BenchmarkRunner(solrconn)
+def test_benchmarkrunner_indexdocs_not_configured(new_mockconn):
+    mockconn = new_mockconn()
+    trunner = runner.BenchmarkRunner(mockconn)
     docset = Mock(id='test')
     with pytest.raises(runner.RunnerConfigurationError) as excinfo:
         trunner.index_docs(docset)
     assert 'without adding configuration data' in str(excinfo.value)
 
 
-def test_benchmarkrunner_indexdocs_wrong_docset(configdata, solrconn):
-    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+def test_benchmarkrunner_indexdocs_wrong_docset(configdata, new_mockconn):
+    mockconn = new_mockconn()
+    trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     docset = Mock(id='WRONG')
     with pytest.raises(runner.RunnerConfigurationError) as excinfo:
         trunner.index_docs(docset)
@@ -469,34 +445,41 @@ def test_benchmarkrunner_search_controls(rep_n, ignore_n, qtimes, exp_qtime,
     # times; with ignore_n, the runner should ignore the first N
     # searches. It should report the average qtime in ms from the ones
     # it does not ignore.
-    mockconn = new_mockconn({'test': (10, qtimes)})
+    mockconn = new_mockconn(terms_hits_qts={'test': (10, qtimes)})
     trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     info = trunner.search('test', {}, rep_n, ignore_n)
     assert info['qtime_ms'] == exp_qtime
     assert mockconn.search.call_count == rep_n
 
 
-@pytest.mark.parametrize('q, kwargs, exp_hits, exp_ids', [
-    ('_aaa_', {}, 1, ['1']),
-    ('_bbb_', {}, 2, ['1', '2']),
-    ('_ccc_', {}, 3, ['2', '4', '10']),
-    ('_ddd_', {}, 4, ['1', '2', '8', '9']),
-    ('_eee_', {}, 5, ['3', '4', '5', '6', '9']),
-    ('_aaa_', {'fq': 'colors:brown'}, 1, ['1']),
-    ('_aaa_', {'fq': 'colors:green'}, 0, []),
-    ('_eee_', {'fq': 'colors:brown'}, 3, ['4', '6', '9']),
-    ('_eee_', {'fq': 'colors:green AND colors:brown'}, 1, ['4']),
+@pytest.mark.parametrize('q, kwargs, exp_hits, exp_qtime', [
+    ('_aaa_', {}, 1, 123),
+    ('_bbb_', {}, 2, 234),
+    ('_ccc_', {}, 3, 345),
+    ('_ddd_', {}, 4, 456),
+    ('_eee_', {}, 5, 567),
+    ('_aaa_', {'fq': 'colors:brown'}, 1, 678),
+    ('_aaa_', {'fq': 'colors:green'}, 0, 789),
+    ('_eee_', {'fq': 'colors:brown'}, 3, 891),
+    ('_eee_', {'fq': 'colors:green AND colors:brown'}, 1, 912),
 ])
-def test_benchmarkrunner_search_result(q, kwargs, exp_hits, exp_ids,
-                                       configdata, test_doc_data, solrconn):
-    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
-    solrconn.add(test_doc_data, commit=True)
-    info = trunner.search(q, kwargs)
-    result_ids = [r['id'] for r in info['result']]
-    assert info['hits'] == exp_hits
-    assert info['qtime_ms'] >= 0
-    for doc_id in exp_ids:
-        assert doc_id in result_ids
+def test_benchmarkrunner_search_result(q, kwargs, exp_hits, exp_qtime,
+                                       configdata, new_mockconn):
+    mockconn = new_mockconn(terms_hits_qts={q: (exp_hits, [exp_qtime])})
+    trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
+    info = trunner.search(q, kwargs, rep_n=1, ignore_n=0)
+    assert info['hits'] == info['result'].hits == exp_hits
+    assert info['qtime_ms'] == info['result'].qtime == exp_qtime
+    mockconn.search.assert_called_once_with(q=q, **kwargs)
+
+
+def test_benchmarkrunner_search_blankq(configdata, new_mockconn):
+    # When `blank_q` is provided and `q` is blank, the `blank_q` value
+    # should be used for `q` in the Solr search.
+    mockconn = new_mockconn()
+    trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
+    trunner.search('', {}, rep_n=1, ignore_n=0, blank_q='*:*')
+    mockconn.search.assert_called_once_with(q='*:*', **{})
 
 
 @pytest.mark.parametrize('terminfo, qkwargs, rep_n, ignore_n, exp_stats', [
@@ -523,7 +506,7 @@ def test_benchmarkrunner_runsearches(terminfo, qkwargs, rep_n, ignore_n,
     # The `run_searches` method should call `search` for each term in
     # `terms`, using the given query_kwargs, rep_n, and ignore_n args.
     # It should result in the expected stats.
-    mockconn = new_mockconn(terminfo)
+    mockconn = new_mockconn(terms_hits_qts=terminfo)
     trunner = runner.BenchmarkRunner(mockconn).configure('test', configdata)
     stats = trunner.run_searches(terminfo.keys(), 'TEST', qkwargs, rep_n,
                                  ignore_n, blank_q='*:*', verbose=False)
@@ -534,8 +517,9 @@ def test_benchmarkrunner_runsearches(terminfo, qkwargs, rep_n, ignore_n,
     )
 
 
-def test_benchmarkrunner_runsearches_not_configured(solrconn):
-    trunner = runner.BenchmarkRunner(solrconn)
+def test_benchmarkrunner_runsearches_not_configured(new_mockconn):
+    mockconn = new_mockconn()
+    trunner = runner.BenchmarkRunner(mockconn)
     with pytest.raises(runner.RunnerConfigurationError) as excinfo:
         trunner.run_searches(['one', 'two'], 'TEST')
     assert 'without adding configuration data' in str(excinfo.value)
