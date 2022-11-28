@@ -1,20 +1,138 @@
-"""Contains integration test(s) for `runner` module."""
+"""Contains integration test(s) for `runner` module.
+
+These tests require an active Solr instance to run. You can either
+provide your own test core that uses the configuration in the
+`tests/solrconf` directory, or you can use Docker / docker-compose.
+
+By default we expect Solr to run on 127.0.0.1:8983 using a core called
+"test_core." You can change any of these values by setting them as
+environment variables in a `tests/integration/.env` file. (Use
+`tests/integration/template.env` as a template.) If the defaults are
+fine, then you do not need to create the .env file.
+
+To use Docker you must (of course) have Docker and docker-compose
+installed. Run Solr by running `./docker-compose.sh up -d` from within
+the `tests/integration` directory.
+
+Tests expect the test core to start out empty, and they will clear it
+out when complete. DO NOT USE IT FOR ANYTHING OTHER THAN THESE TESTS.
+"""
+import pytest
+
 from solrbenchmark import docs, runner
 
 
 # Fixtures / test data
-#
+
+@pytest.fixture
+def assert_index_matches_docslist():
+    """Fixture: returns a func for checking contents of a Solr index."""
+    def _assert_index_matches_docslist(docslist, conn):
+        results = list(conn.search('*:*', rows=len(docslist), sort='id asc'))
+
+        # Solr does not return None for blank fields, so we have to
+        # remove them from the expected docslist.
+        exp_results = [
+            {k: v for k, v in doc.items() if v is not None}
+            for doc in docslist
+        ]
+        assert results == sorted(exp_results, key=lambda d: d['id'])
+    return _assert_index_matches_docslist
+
+
+@pytest.fixture
+def test_doc_data():
+    """Fixture: returns some data to use with simple_schema for tests."""
+    return [
+        {'id': '1', 'title': 'Test Doc 1', 'colors': ['grey', 'brown', 'blue'],
+         'pattern': 'striped', 'title_search': '_aaa_ Test Doc 1',
+         'colors_search': ['grey _ddd_', 'brown', '_bbb_'],
+         'pattern_search': 'striped'},
+        {'id': '2', 'title': 'Test Doc 2', 'colors': ['white', 'purple'],
+         'pattern': 'checkered', 'title_search': '_ccc_ _bbb_',
+         'colors_search': ['_ddd_', 'purple', 'red'],
+         'pattern_search': 'checkered'},
+        {'id': '3', 'title': 'Test Doc 3',
+         'colors': ['black', 'yellow', 'orange'], 'pattern': 'plaid',
+         'title_search': '_eee_',
+         'colors_search': ['black', 'yellow', 'orange'],
+         'pattern_search': 'plaid'},
+        {'id': '4', 'title': 'Test Doc 4', 'colors': ['green', 'brown'],
+         'pattern': 'solid', 'title_search': 'Test Doc 4',
+         'colors_search': ['green _ccc_', 'brown', 'brown _eee_'],
+         'pattern_search': 'solid'},
+        {'id': '5', 'title': 'Test Doc 5', 'pattern': 'paisley',
+         'title_search': 'Test Doc 5', 'pattern_search': 'paisley _eee_'},
+        {'id': '6', 'title': 'Test Doc 6', 'colors': ['brown'],
+         'pattern': 'striped', 'title_search': 'Test Doc 6',
+         'colors_search': ['brown', 'br _fff_ own _eee_'],
+         'pattern_search': 'striped'},
+        {'id': '7', 'title': 'Test Doc 7', 'pattern': 'striped',
+         'title_search': 'Test Doc 7', 'pattern_search': 'striped'},
+        {'id': '8', 'title': 'Test Doc 8', 'colors': ['grey'],
+         'pattern': 'striped', 'title_search': '_ggg_ _ddd_',
+         'colors_search': ['grey'], 'pattern_search': 'striped'},
+        {'id': '9', 'title': 'Test Doc 9', 'colors': ['brown'],
+         'pattern': 'striped', 'title_search': '_hhh_ _ddd_',
+         'colors_search': ['_eee_'], 'pattern_search': 'striped'},
+        {'id': '10', 'title': 'Test Doc 10', 'colors': ['grey', 'blue'],
+         'pattern': 'checkered', 'title_search': 'Test Doc 10',
+         'colors_search': ['grey', '_ccc_ blue'],
+         'pattern_search': 'checkered'}]
+
+
 # Tests below use built-in pytest fixture `tmpdir`. Other fixtures used
 # are defined in `conftest.py`:
 #    simple_schema
 #    solrconn
 #    configdata
+#    indexstats_sanity_check
 
 
 # Tests
 
+def test_benchmarkrunner_indexdocs(configdata, simple_schema, solrconn,
+                                   indexstats_sanity_check,
+                                   assert_index_matches_docslist):
+    assert_index_matches_docslist([], solrconn)
+    batch_size = 10
+    num_docs = 50
+    myschema = simple_schema(num_docs, 0.5, 0.5, 999)
+    docslist = [myschema() for _ in range(myschema.num_docs)]
+    myschema.reset_fields()
+    tdocset = docs.DocSet.from_schema('test-docset', myschema)
+    tr = runner.BenchmarkRunner(solrconn).configure(tdocset.id, configdata)
+    stats = tr.index_docs(tdocset, batch_size=batch_size, verbose=True)
+    indexstats_sanity_check(stats, batch_size, myschema.num_docs)
+    assert tr.log.indexing_stats == stats
+    assert_index_matches_docslist(docslist, solrconn)
+
+
+@pytest.mark.parametrize('q, kwargs, exp_hits, exp_ids', [
+    ('_aaa_', {}, 1, ['1']),
+    ('_bbb_', {}, 2, ['1', '2']),
+    ('_ccc_', {}, 3, ['2', '4', '10']),
+    ('_ddd_', {}, 4, ['1', '2', '8', '9']),
+    ('_eee_', {}, 5, ['3', '4', '5', '6', '9']),
+    ('_aaa_', {'fq': 'colors:brown'}, 1, ['1']),
+    ('_aaa_', {'fq': 'colors:green'}, 0, []),
+    ('_eee_', {'fq': 'colors:brown'}, 3, ['4', '6', '9']),
+    ('_eee_', {'fq': 'colors:green AND colors:brown'}, 1, ['4']),
+])
+def test_benchmarkrunner_search_result(q, kwargs, exp_hits, exp_ids,
+                                       configdata, test_doc_data, solrconn):
+    trunner = runner.BenchmarkRunner(solrconn).configure('test', configdata)
+    solrconn.add(test_doc_data, commit=True)
+    info = trunner.search(q, kwargs)
+    result_ids = [r['id'] for r in info['result']]
+    assert info['hits'] == exp_hits
+    assert info['qtime_ms'] >= 0
+    for doc_id in exp_ids:
+        assert doc_id in result_ids
+
+
 def test_runner_integration(tmpdir, configdata, simple_schema, solrconn):
-    # This is an integration test that tests and illustrates the steps
+    # This is the big integration test that tests/illustrates the steps
     # for running benchmark tests from start to finish. Many of the
     # specifics are hidden away in fixtures, so this is mostly a high-
     # level view.

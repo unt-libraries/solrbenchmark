@@ -6,7 +6,9 @@
 # ./docker-compose.sh up -d
 
 set -o allexport
-source ./.env
+if [[ -f "$FILE" ]]; then
+    source ./.env
+fi
 USERID=$(id -u)
 GROUPID=$(id -g)
 set +o allexport

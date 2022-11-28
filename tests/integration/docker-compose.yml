@@ -6,4 +6,4 @@ services:
       - ./solrconf:/test_core_config/conf
     ports:
       - "${TEST_SOLR_HOST:-127.0.0.1}:${TEST_SOLR_PORT:-8983}:8983"
-    command: solr-precreate test_core /test_core_config
+    command: solr-precreate "${TEST_SOLR_CORE:-test_core}" /test_core_config

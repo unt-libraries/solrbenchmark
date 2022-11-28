@@ -61,7 +61,7 @@ isolated_build = True
 extras =
     dev
 commands =
-    pytest --ignore=tests/test_runner_integration.py
+    pytest --ignore=tests/integration
 
 [testenv:py37-oldest]
 deps =
@@ -98,7 +98,7 @@ deps =
 
 [testenv:py{37,38,39,310,311}-integration]
 commands =
-    pytest -k test_runner_integration.py
+    pytest -k integration
 
 [testenv:flake8]
 basepython=python3.10

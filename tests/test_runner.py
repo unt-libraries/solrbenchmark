@@ -52,33 +52,6 @@ def new_mockconn():
     return _new_mockconn
 
 
-@pytest.fixture
-def indexstats_sanity_check():
-    """Fixture: returns a func for sanity checking test indexing stats.
-
-    (I.e., from runner.BenchmarkRunner.)
-    """
-    def _indexstats_sanity_check(stats, batch_size, num_docs):
-        uneven_batches = num_docs % batch_size
-        num_batches = num_docs / batch_size + (1 if uneven_batches else 0)
-        i_total = sum(stats['indexing_timings_secs'])
-        i_avg = i_total / num_batches
-        c_total = sum(stats['commit_timings_secs'])
-        c_avg = c_total / num_batches
-        assert stats['batch_size'] == batch_size
-        assert stats['total_docs'] == num_docs
-        assert len(stats['indexing_timings_secs']) == num_batches
-        assert round(stats['indexing_total_secs'], 4) == round(i_total, 4)
-        assert round(stats['indexing_average_secs'], 4) == round(i_avg, 4)
-        assert len(stats['commit_timings_secs']) == num_batches
-        assert round(stats['commit_total_secs'], 4) == round(c_total, 4)
-        assert round(stats['commit_average_secs'], 4) == round(c_avg, 4)
-        total = round(i_total + c_total, 4)
-        assert round(stats['total_secs'], 4) == total
-        assert round(stats['average_secs'], 4) == round(total / num_batches, 4)
-    return _indexstats_sanity_check
-
-
 # Note: built-in pytest fixture `tmpdir` is used for some tests. This
 # creates a unique temporary directory for each test instance for
 # testing file I/O. Files do NOT persist between tests.
@@ -86,6 +59,7 @@ def indexstats_sanity_check():
 # Additional fixtures defined in `conftest.py` are used:
 #    simple_schema
 #    configdata
+#    indexstats_sanity_check
 
 
 # Tests
