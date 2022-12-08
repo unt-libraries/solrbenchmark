@@ -120,7 +120,7 @@ def test_makevocabulary_not_enough_unique(emitter, vocab_size):
     assert f"you requested {vocab_size}" in err_msg
 
 
-@pytest.mark.parametrize('seed, emitter, phw_sizes, expected', [
+@pytest.mark.parametrize('seed, emitter, ph_counts, expected', [
     (999, Choice(LOREM_IPSUM[:10]), [10, 5, 3, 2],
      ['cillum ad', 'anim cillum', 'commodo anim', 'ad consectetur',
       'aliqua commodo', 'cillum aliquip', 'cillum commodo', 'amet adipiscing',
@@ -141,14 +141,14 @@ def test_makevocabulary_not_enough_unique(emitter, vocab_size):
      ['a c', 'b d', 'd b', 'a c b', 'b d a', 'd a c', 'a c b d', 'b a d c',
       'b c d a']),
 ])
-def test_makephrases(seed, emitter, phw_sizes, expected, phrases_sanity_check):
-    phrases = terms.make_phrases(emitter, phw_sizes, rng_seed=seed)
+def test_makephrases(seed, emitter, ph_counts, expected, phrases_sanity_check):
+    phrases = terms.make_phrases(emitter, ph_counts, rng_seed=seed)
     assert phrases == expected
-    phrases_sanity_check(phrases, phw_sizes)
+    phrases_sanity_check(phrases, ph_counts)
 
 
 @pytest.mark.parametrize(
-    'seed, emitter, vocab_size, phw_sizes, exp_sterms, exp_result', [
+    'seed, emitter, vocab_size, ph_counts, exp_sterms, exp_result', [
         (999, Choice([str(n) for n in range(100)]), 20, None,
          ['7', '8', '9', '13', '18', '22', '25', '26', '31', '49', '57', '63',
           '70', '78', '79', '84', '87', '88', '98', '99', '18 98', '25 26',
@@ -156,56 +156,53 @@ def test_makephrases(seed, emitter, phw_sizes, expected, phrases_sanity_check):
           '88 25', '25 26 57', '57 49 22', '63 25 79', '70 18 78', '70 26 70',
           '78 18 98', '49 22 70 26', '70 18 78 57', '70 78 18 98',
           '70 18 78 57 49'],
-         ['63', '98', '57 63', '57 49 22', '88', '88 25', '49', '9', '31',
-          '25', '84', '70 78', '70 26 70', '18 98', '7', '70 18 78',
-          '70 78 18 98', '79', '70 18', '49 22 70 26', '25 26 57', '13',
-          '63 25 79', '18', '87', '78', '70 18 78 57', '99', '26', '49 22',
-          '70', '70 26', '78 57', '25 26', '57', '22', '70 18 78 57 49',
-          '78 18 98', '25 79', '8', '88 25', '18', '63 25 79', '25 79', '99',
-          '25', '88 25', '78', '88 25', '57 49 22', '22', '70 18 78 57 49',
-          '49', '70', '25 26', '70 26', '63', '70 18 78', '70 18 78 57 49',
-          '57']),
+         ['63', '98', '57 63', '88', '9', '49', '57 49 22', '25', '31',
+          '88 25', '7', '84', '18 98', '79', '13', '70 78', '18', '70 26 70',
+          '70 18 78', '70 18', '26', '78', '25 26 57', '70 78 18 98', '87',
+          '70', '49 22 70 26', '99', '22', '63 25 79', '57', '49 22', '8',
+          '70 26', '25 26', '70 18 78 57', '78 57', '25 79', '78 18 98',
+          '70 18 78 57 49', '57 63', '9', '78 57', '87', '79', '18', '57 63',
+          '49', '57 63', '70 78', '13', '70 18 78 57 49', '22', '26', '87',
+          '25 26', '26', '88 25', '70 18 78 57', '25']),
         (999, Choice(LOREM_IPSUM), 10, [5, 3, 2, 1],
          ['id', 'qui', 'sed', 'anim', 'aute', 'elit', 'sint', 'commodo',
           'laboris', 'proident', 'aute sed', 'sint qui', 'sint anim',
           'sint aute', 'sint sint', 'aute aute sed', 'sint qui sint',
           'sint anim sint', 'aute sed sint anim', 'sint qui sint aute',
           'sint qui sint aute aute'],
-         ['sint qui', 'aute sed sint anim', 'proident', 'sint anim sint',
-          'sed', 'laboris', 'sint', 'aute aute sed', 'id', 'sint sint', 'anim',
-          'aute', 'sint qui sint aute aute', 'commodo', 'sint aute',
-          'sint anim', 'sint qui sint', 'aute sed', 'elit',
-          'sint qui sint aute', 'qui', 'aute aute sed', 'sed',
-          'sint anim sint', 'sint qui', 'aute sed', 'anim', 'aute aute sed',
-          'commodo', 'aute aute sed', 'sint qui sint', 'sed',
-          'sint qui sint aute aute', 'aute', 'sint', 'sint qui', 'sint aute',
-          'elit', 'sint anim sint', 'sint qui sint aute aute']),
+         ['sint qui', 'aute sed sint anim', 'sed', 'proident', 'sint',
+          'laboris', 'id', 'sint anim sint', 'anim', 'aute', 'aute aute sed',
+          'sint sint', 'commodo', 'elit', 'sint aute', 'sint anim', 'qui',
+          'sint qui sint aute aute', 'aute sed', 'sint qui sint',
+          'sint qui sint aute', 'sint anim', 'qui', 'sint sint', 'laboris',
+          'commodo', 'sed', 'sint anim', 'aute', 'sint anim', 'sint aute',
+          'qui', 'sint qui sint aute aute', 'sed', 'anim', 'laboris',
+          'aute sed', 'anim', 'sint sint', 'sint qui sint aute']),
         (999, Word(Choice(range(1, 6)), Choice('abcdef')), 5, [5, 5, 5],
          ['c', 'afb', 'bde', 'eafd', 'aebef', 'bde c', 'afb afb', 'bde afb',
           'bde bde', 'eafd bde', 'bde c eafd', 'afb afb bde', 'bde afb afb',
           'bde afb bde', 'bde c aebef', 'bde c eafd bde', 'afb afb bde afb',
           'afb afb bde bde', 'bde bde c aebef', 'afb eafd aebef afb'],
-         ['afb afb bde', 'bde bde c aebef', 'eafd bde', 'bde',
-          'afb afb bde bde', 'bde bde', 'afb afb', 'c', 'bde c eafd bde',
-          'bde c aebef', 'eafd', 'aebef', 'bde afb', 'bde afb bde',
-          'bde afb afb', 'afb afb bde afb', 'bde c', 'bde c eafd',
-          'afb eafd aebef afb', 'afb', 'bde c aebef', 'bde', 'afb afb bde afb',
-          'bde c eafd', 'eafd bde', 'eafd', 'bde c aebef', 'afb afb',
-          'bde c aebef', 'bde c eafd bde', 'bde', 'afb eafd aebef afb',
-          'aebef', 'bde c', 'bde c eafd', 'bde afb bde', 'bde c',
-          'afb afb bde afb', 'afb eafd aebef afb', 'bde c']),
+         ['afb afb bde', 'bde bde c aebef', 'bde', 'c', 'eafd bde', 'afb afb',
+          'bde bde', 'eafd', 'aebef', 'afb afb bde bde', 'bde afb',
+          'bde c eafd bde', 'bde c aebef', 'bde c', 'afb', 'bde afb bde',
+          'bde afb afb', 'bde c eafd', 'afb afb bde afb', 'afb eafd aebef afb',
+          'bde c eafd', 'c', 'bde afb afb', 'bde afb', 'bde c', 'afb',
+          'bde c eafd', 'eafd', 'bde c eafd', 'bde afb afb', 'afb',
+          'afb eafd aebef afb', 'bde', 'eafd', 'bde afb', 'eafd bde', 'eafd',
+          'bde afb bde', 'bde bde c aebef', 'bde'])
     ]
 )
-def test_makesearchtermemitter(seed, emitter, vocab_size, phw_sizes,
+def test_makesearchtermemitter(seed, emitter, vocab_size, ph_counts,
                                exp_sterms, exp_result, vocabulary_sanity_check,
                                phrases_sanity_check,
                                term_selection_sanity_check):
-    stem = terms.make_search_term_emitter(emitter, vocab_size, phw_sizes, seed)
+    stem = terms.make_search_term_emitter(emitter, vocab_size, ph_counts, seed)
     result = stem(len(exp_result))
     assert stem.items == exp_sterms
     assert result == exp_result
-    if phw_sizes is None:
-        phw_sizes = terms._default_phrase_counts(vocab_size)
+    if ph_counts is None:
+        ph_counts = terms._default_phrase_counts(vocab_size)
     vocabulary_sanity_check(stem.items[:vocab_size], vocab_size)
-    phrases_sanity_check(stem.items[vocab_size:], phw_sizes)
+    phrases_sanity_check(stem.items[vocab_size:], ph_counts)
     term_selection_sanity_check(result, stem.items, True)

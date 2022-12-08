@@ -97,21 +97,21 @@ def phrases_sanity_check():
 
     Sets of phrases generated to embed as search terms should have the
     following qualities.
-        - `word_sizes` should provide a list of how many 2-word
+        - `phrase_counts` should provide a list of how many 2-word
           3-word, 4-word, etc. phrases that the generated phrases
           should contain.
         - Each phrase should be unique.
         - The total number of unique phrases should match the sum of
-          all counts in `word_sizes`.
+          all counts in `phrase_counts`.
     """
-    def _phrases_sanity_check(sterms, words_sizes):
+    def _phrases_sanity_check(sterms, phrase_counts):
         tlen_counts = {}
         for term in sterms:
             key = len(term.split(' ')) - 2
             tlen_counts[key] = tlen_counts.get(key, 0) + 1
         for index in sorted(tlen_counts):
-            assert words_sizes[index] == tlen_counts[index]
-        assert sum(words_sizes) == len(sterms) == len(set(sterms))
+            assert phrase_counts[index] == tlen_counts[index]
+        assert sum(phrase_counts) == len(sterms) == len(set(sterms))
     return _phrases_sanity_check
 
 

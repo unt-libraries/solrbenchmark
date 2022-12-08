@@ -555,12 +555,25 @@ def test_docset_fromschema_no_savepath_no_rngseed(simple_schema):
     # we've used an RNG seed of None (which uses a different RNG seed
     # each time). Each time we call docset.docs, we should get a
     # different set of documents, each of which still conforms to our
-    # schema.
-    results = [list(docset.docs), list(docset.docs), list(docset.docs)]
-    exp_ids = ['0000001', '0000002', '0000003', '0000004', '0000005']
-    assert all(len(ds) == 5 for ds in results)
-    assert all([doc['id'] for doc in ds] == exp_ids for ds in results)
-    assert all(a != b for a, b in itertools.combinations(results, 2))
+    # schema. Also: without an RNG seed, we're dependent on random
+    # outcomes; duplicate docsets aren't impossible, just unlikely. To
+    # prevent that from causing our test to fail, we'll rerun this test
+    # up to ten times to ensure at some point we get different document
+    # sets. If ten tries in a row still produces a duplicate document
+    # set, then something is probably wrong.
+    for _ in range(10):
+        results = [list(docset.docs), list(docset.docs), list(docset.docs)]
+        exp_ids = ['0000001', '0000002', '0000003', '0000004', '0000005']
+        assert all(len(ds) == 5 for ds in results)
+        assert all([doc['id'] for doc in ds] == exp_ids for ds in results)
+        if all(a != b for a, b in itertools.combinations(results, 2)):
+            break
+    else:
+        pytest.fail(
+            'Generating three lists of documents from a docset without using '
+            'an RNG seed produced a duplicate docset in each of ten tries. '
+            'While this is not impossible, it is HIGHLY unlikely.'
+        )
 
 
 def test_docset_fromschema_w_savepath(tmpdir, fileset_check, simple_schema):
@@ -601,27 +614,44 @@ def test_docset_fromschema_w_savepath_overwrite(tmpdir, fileset_check,
                                                 simple_schema):
     myschema = simple_schema(5, 0.5, 0.5, None)
     docset = docs.DocSet.from_schema('test-docset', myschema, savepath=tmpdir)
-    results = [list(docset.docs)]
-    fv_counts = [docset.facet_value_counts]
-    # When creating a DocSet from a schema and saving results to disk,
-    # you can manually set it to write a new set of documents on any
-    # subsequent pass, overriding the default behavior of reading from
-    # the saved file.
-    docset.source.file_action = 'w'
-    for _ in range(2):
-        results.append(list(docset.docs))
-        fv_counts.append(docset.facet_value_counts)
+    orig_results = list(docset.docs)
+    orig_fv_counts = docset.facet_value_counts
+
+    # Part of this test -- comparing randomly-generated document sets
+    # to one another -- relies on unseeded RNG to produce results that
+    # are likely but not necessarily guaranteed. A docset or set of
+    # facet values may accidentally happen to repeat unexpectedly,
+    # which would cause assertions to fail. To account for these, we try
+    # up to 10 times; it's HIGHLY unlikely to get unexpected repetition
+    # 10 times in a row.
+    for _ in range(10):
+        # When creating a DocSet from a schema and saving results to
+        # disk, you can manually set it to write a new set of documents
+        # for any subsequent pass, overriding the default behavior of
+        # reading from the saved file.
+        docset.source.file_action = 'w'
+        w_results = list(docset.docs)
+        w_fv_counts = docset.facet_value_counts
+        if orig_results != w_results and orig_fv_counts != w_fv_counts:
+            break
+    else:
+        pytest.fail(
+            'Generating two lists of documents from a docset without using '
+            'an RNG seed produced a duplicate list in each of ten tries. '
+            'While this is not impossible, it is HIGHLY unlikely.'
+        )
+
+    # After manually overriding the default behavior, it will return to
+    # the default behavior on the next pass.
+    assert w_results == list(docset.docs) == list(docset.docs)
+    assert w_fv_counts == docset.facet_value_counts
     loaded_fset = docs.FileSet(tmpdir, 'test-docset')
-    assert results[0] != results[1]
-    assert fv_counts[0] != fv_counts[1]
-    assert results[1] == results[2]
-    assert fv_counts[1] == fv_counts[2]
     assert docset.fileset.filepaths == loaded_fset.filepaths
     fileset_check(loaded_fset, termsfile_exists=True, termsfile_is_empty=False,
                   docsfile_exists=True, docsfile_is_empty=False,
                   countsfile_exists=True, countsfile_is_empty=False,
                   exp_search=docset.search_terms, exp_facet=docset.facet_terms,
-                  exp_docs=results[1], exp_tdocs=5, exp_fvcounts=fv_counts[1])
+                  exp_docs=w_results, exp_tdocs=5, exp_fvcounts=w_fv_counts)
 
 
 def test_docset_fromschema_w_savepath_append(tmpdir, fileset_check,

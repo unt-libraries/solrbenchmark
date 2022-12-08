@@ -34,7 +34,10 @@ dependencies = [
     # package version so we can use pyproject.toml as the single source
     # of truth for the version number. This was new in 3.8, so for 3.7
     # we have to use importlib_metadata.
-    'importlib_metadata >= 2.0.0; python_version == "3.7"'
+    'importlib_metadata >= 2.0.0; python_version == "3.7"',
+    # For Python 3.7 we need typing_extensions for Protocol support,
+    # which was added to the typing stdlib in 3.8.
+    'typing_extensions >= 3.6.5; python_version == "3.7"'
 ]
 
 [project.optional-dependencies]
