@@ -2,7 +2,8 @@
 
 These tests require an active Solr instance to run. You can either
 provide your own test core that uses the configuration in the
-`tests/solrconf` directory, or you can use Docker / docker-compose.
+`tests/integration/solrconf` directory, or you can use Docker and
+docker-compose.
 
 By default we expect Solr to run on 127.0.0.1:8983 using a core called
 "test_core." You can change any of these values by setting them as
