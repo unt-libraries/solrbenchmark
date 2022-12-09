@@ -12,13 +12,13 @@ solrbenchmark
 
 *`solrbenchmark`* contains tools for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and reporting results.
 
-If you're running a production [Apache Solr](https://solr.apache.org/) instance, you know that pinning down Solr's hardware and configuration requirements can be notoriously difficult. So many factors affect how Solr will perform — including how many collections or Solr cores you have, the size and complexity of your schema(s), the size of your document sets, and the load you need to be able to handle. The usual advice is that you have to profile for your specific use case in order to get an idea about what you'll need.
+If you're running [Apache Solr](https://solr.apache.org/), you know that pinning down Solr's hardware and configuration requirements can be notoriously difficult. So many factors affect how Solr will perform — including how many collections or Solr cores you have, the size and complexity of your schema(s), the size of your document sets, and the load you need to be able to handle. The usual advice is that you have to profile for your specific use case in order to get an idea about what you'll need.
 
-One profiling approach is to benchmark: set up a Solr instance that reflects your production configuration (or a your best guess about what a solid configuration would be), load up documents that reflect your use case, and run tests to measure performance. Then run additional tests, changing the baseline configuration and comparing results against the benchmark to see what changes have what effects.
+One profiling approach is to benchmark: set up a Solr instance that reflects your production configuration (or a your best guess about what a solid configuration would be), load up documents that reflect your use case, and run tests to measure baseline performance. Then run additional tests, each of which changes some configuration variable, and compare results against the baseline to see what changes have what effects.
 
 Benchmarking in this manner is time consuming, and there's a lot to consider. I wrote this package in an effort to save myself (and possibly others) some time by documenting and operationalizing aspects of this process.
 
-Be aware that this package came out of a particular implementation of Solr benchmarking tests. Although the workflow, methods, parameters, etc. may be too inherently tied to the assumptions from that implementation, my goal has been to generalize things enough that it's more widely useful. The decisions I made and parameters I used may be problematic in various ways, so I'm releasing this as a pre-production version, which I hope to refine in the future.
+Be aware that this package came out of a particular implementation of Solr benchmarking tests. Although the workflow, methods, parameters, etc. may be inherently tied to the assumptions from that implementation, my goal has been to generalize things enough that it's more widely useful. The decisions I made and parameters I used may be problematic in various ways, so I'm releasing this as a pre-production version, which I hope to refine in the future.
 
 See the [Usage](#usage) section for more details.
 
@@ -27,7 +27,7 @@ See the [Usage](#usage) section for more details.
 
 Solrbenchmark requires Python 3 and is tested with Python versions 3.7 and above.
 
-Dependencies installed upon installation include `fauxdoc` and `ujson`. If you're on Python 3.7, backports `importlib_metadata` and `typing_extentions` are installed as well.
+Dependencies installed upon installation include `fauxdoc` and `ujson`. If you're on Python 3.7, `importlib_metadata` and `typing_extentions` are installed as well.
 
 You will of course also need a Solr instance to test and a Python API for communicating with Solr: `pysolr` is what is expected and supported.
 
@@ -51,7 +51,7 @@ See [Contributing](#contributing) for the recommended installation process if yo
 
 ### Before Getting Started
 
-The solrbenchmark package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project in an environment with access to the Solr instance(s) you want to use for testing. For benchmarking, it's recommended to test against an isolated Solr instance. However, you could use solrbenchmarking to run tests against e.g. pre-production environments to help with stress testing and configuration. Running solrbenchmark tests against a live production Solr instance is *not* recommended.
+The `solrbenchmark` package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project in an environment with access to the Solr instance(s) you want to use for testing. For benchmarking, it's recommended to test against an isolated Solr instance. However, you could use solrbenchmarking to run tests against e.g. pre-production environments to help with stress testing and configuration. Running solrbenchmark tests against a live production Solr instance is *not* recommended.
 
 You should also install the [`pysolr`](https://pypi.org/project/pysolr/) package in the same Python environment you install `solrbenchmark` to. When you run tests, it expects you to provide a Solr connection object that uses the `pysolr.Solr` API. (The methods it uses are limited to `add`, `commit`, and `search` — so if you have a different preferred Solr API, writing an adapter would not be too difficult. See `PysolrResultLike` and `PysolrConnLike` in `solrbenchmark.localtypes` for details about the expected protocols.)
 
@@ -64,7 +64,7 @@ Planning how you'll go about testing before getting started will help you unders
     - Are you testing for an existing collection or a collection that doesn't exist yet? It's easier to model your test configuration after an existing collection; for a new collection, you'll have to do some guesswork.
     - How will you produce your test document set? With an existing collection, you can either use documents from the live document set or generate faked documents that emulate the live document set. With a new collection, you'll *have* to generate faked documents, obviously.
         - Solrbenchmark assumes you will be generating faked documents — its tools are built around that use case. But, it could easily be adapted to use a pre-existing document set.
-        - If you need to generate faked documents, you'll need to spend time setting up the code that will generate those documents. This process is somewhat involved. See [Setting Up Your Schema](#setting-up-your-schema) for more details.
+        - If you need to generate faked documents, you'll need to spend time setting up the code that will generate those documents. This process is somewhat involved. See [Setting Up Your Schema Faker](#setting-up-your-schema-faker) for more details.
     - How large do you need your test document set to be? Likely your test environment is a scaled-down version of your live environment. To get comparable tests, you'll want to scale your document set and your test environment similarly.
         - Memory usage is a particularly important consideration.
         - If you're using documents from an actual document set, you'll want a sample that's representative of the whole set, in terms of document characteristics. What exactly that means and how you approach that depends on your document set and its characteristics! If your test document set will be 10% the size of your real document set, then perhaps taking every 10th document is a good enough approach.
@@ -93,7 +93,7 @@ Planning how you'll go about testing before getting started will help you unders
         - For search terms, we assume that you want tests that cover a range of searches — searches on common terms that will give you a large result set down to rare terms and phrases that give you smaller results sets. Generally we assume that these search terms will appear in your document set in a ~normal distribution.
         - For facets, the two key factors are cardinality and distribution.
             - Cardinality: The set of unique values for each facet field in your document set should reflect the same cardinality you see in the actual collection — this could be static (5 unique values) or a function of the total number of documents (1 unique facet value per 1000 documents).
-            - Distribution: Facet values probably occur in your actual document set along some kind of distribution curve — maybe a few appear very frequently with a long tail where each only appears once. You probably want to replicating a similar distribution in your test document set.
+            - Distribution: Facet values probably occur in your actual document set along some kind of distribution curve — maybe a few appear very frequently, and there's a long tail where each only appears once. You probably want to replicate a similar distribution in your test document set.
         - If you are generating faked documents from scratch, you are probably generating random data, but you'll want to be able to generate predictable sets of search terms and facet terms — at least, ones that follow the necessary patterns — to go into your search and facet fields to produce the desired results. 
             - For search terms, the approach that `solrbenchmark` takes is to pre-generate a list of search terms for you and then embed those in the otherwise randomly generated search fields in your faked documents to give you a realistic distribution of results. You'll then use that list of search terms to run search tests.
             - Similarly, for facet terms, `solrbenchmark` generates a list of facet terms based on the target size for your document set (to produce the desired cardinality), and then it assigns facet values to documents to produce the desired distribution.
@@ -108,9 +108,9 @@ If you are generating a test document set that uses faked data, then you will ne
     - How much text appears in each text field, the sizes of facet strings, etc.
     - The range and distribution of values in multi-valued fields. How often is there 1 value? 2 values? 3? etc.
     - Occurrence of data in optional fields. Is a given field populated in 10% of records? 70%?
-- Words and word-length distributions, especially for search fields. Your text doesn't necessarily have to reflect word distributions in a given language, but it isn't difficult to model appropriate approximate distributions of word lengths.
-    - (Side note: this is honestly something I wonder about. What characteristics of text actually impact Solr performance? Presumably the number of words and word distributions *would* actually affect the size and contents of the search indexes. FUTURE TO-DO: Create an emitter type where we could generate a set vocabulary and the emitter would generate random text using that vocabulary, instead of just randomly choosing individual alphabet letters.)
-- Realistic distribution of search terms for testing against. Completely random text won't cut it for terms you need to be able to search and actually produce a sizeable result set.
+- Words and word-length distributions, especially for search fields. Your text doesn't necessarily have to reflect precise words or word distributions in a given language. But modeling appropriate distributions of word lengths isn't difficult.
+    - (Side note: I'm not sure about this. What characteristics of text actually impact Solr performance? Presumably the number of words and word distributions *would* actually affect the size and contents of the search indexes. FUTURE TO-DO: Create an emitter type where we could generate a set vocabulary and the emitter would generate random text using that vocabulary, instead of just randomly choosing individual alphabet letters.)
+- Realistic distribution of search terms to test against. Completely random text won't cut it for terms you need to be able to search and actually produce a sizeable result set.
 - Realistic cardinality and distribution of facet terms. Performance of faceting is known to be dependent on cardinality — how many unique facet values you have.
 
 #### Emitters, Fields, and Schemas
@@ -436,7 +436,7 @@ By default we expect Solr to run on 127.0.0.1:8983 using a core called `test_cor
 
 ##### Using Docker-solr
 
-To use Docker, you must [have Docker and docker-compose installed](https://www.docker.com/get-started/). The supplied configuration will run Solr over Docker using [the official docker-solr image](https://github.com/docker-solr/docker-solr).
+To use Docker, you must [have Docker and docker-compose installed](https://www.docker.com/get-started/). The supplied configuration will run Solr over Docker using [the official docker-solr image](https://github.com/apache/solr-docker).
 
 By default, when you run Solr, you can access the admin console at `localhost:8983`.
 
