@@ -1,49 +1,145 @@
-# solrbenchmark
+solrbenchmark
+=============
 
-Python tools for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and reporting results.
+- [About](#about)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Contributing](#contributing)
+- [License](#license)
+
+
+## About
+
+*`solrbenchmark`* contains tools for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and reporting results.
+
+If you're running a production [Apache Solr](https://solr.apache.org/) instance, you know that pinning down Solr's hardware and configuration requirements can be notoriously difficult. So many factors affect how Solr will perform — including how many collections or Solr cores you have, the size and complexity of your schema(s), the size of your document sets, and the load you need to be able to handle. The usual advice is that you have to profile for your specific use case in order to get an idea about what you'll need.
+
+One profiling approach is to benchmark: set up a Solr instance that reflects your production configuration (or a your best guess about what a solid configuration would be), load up documents that reflect your use case, and run tests to measure performance. Then run additional tests, changing the baseline configuration and comparing results against the benchmark to see what changes have what effects.
+
+Benchmarking in this manner is time consuming, and there's a lot to consider. I wrote this package in an effort to save myself (and possibly others) some time by documenting and operationalizing aspects of this process.
+
+Be aware that this package came out of a particular implementation of Solr benchmarking tests. Although the workflow, methods, parameters, etc. may be too inherently tied to the assumptions from that implementation, my goal has been to generalize things enough that it's more widely useful. The decisions I made and parameters I used may be problematic in various ways, so I'm releasing this as a pre-production version, which I hope to refine in the future.
+
+See the [Usage](#usage) section for more details.
+
+
+### Requirements / Dependencies
+
+Solrbenchmark requires Python 3 and is tested with Python versions 3.7 and above.
+
+Dependencies installed upon installation include `fauxdoc` and `ujson`. If you're on Python 3.7, backports `importlib_metadata` and `typing_extentions` are installed as well.
+
+You will of course also need a Solr instance to test and a Python API for communicating with Solr: `pysolr` is what is expected and supported.
+
+[Top](#top)
+
 
 ## Installation
 
-Currently this project lives only in our private GitLab instance, so getting it installed requires two things: setting up your GitLab authentication method, and knowing the secret incantation to get pip to install a package from a git repository.
+You can install the latest published version of solrbenchmark with:
 
-### Set up SSH Authentication
-
-[Set up an SSH key on your system and upload the public key to GitLab](https://content.library.unt.edu/help/ssh/index.md).
-
-### OR Set up a Personal Access Token
-
-[Create or obtain a personal access token](https://content.library.unt.edu/help/user/profile/personal_access_tokens.md) for this project that gives you the `read_repository` permission (at least).
-
-Then configure git to use your access token wherever it encounters an SSH URL for this GitLab instance:
-
-```bash
-git config --global url."https://gitlab_username:gitlab_access_token@content.library.unt.edu".insteadOf "ssh://git@content.library.unt.edu"
+```
+python -m pip install solrbenchmark
 ```
 
-- Replace `gitlab_username` with your GitLab username, and replace `gitlab_access_token` with your access token.
-- This may seem a little roundabout, but it comes in handy when a project has other dependencies in the same repository. In fact, this project depends on `solrfixtures`, which also (currently) lives only in this repository. Git automatically performs the subsituttion for all applicable dependencies.
+See [Contributing](#contributing) for the recommended installation process if you want to develop on solrbenchmark.
 
-### Install as an Editable Project
-
-```bash
-pip install -e "git+ssh://git@content.library.unt.edu/utilities/pypackages/solrbenchmark.git@main#egg=solrbenchmark" --src /home/username/git-dependencies
-```
-
-- Substitute `@main` with whatever branch or tag you want to install.
-- `#egg=solrbenchmark` defines the local name used for this package — recommended to leave as-is.
-- `--src /path` is optional but [lets you define where to put the source files for the project](https://pip.pypa.io/en/stable/cli/pip_install/#cmdoption-src).
-- It may not be necessary to install it as editable with `-e`, but this seems like a good idea when using a non-release or between-release version.
-
-### OR Install the Appropriate Package
-
-*To Be Completed*
+[Top](#top)
 
 
 ## Usage
 
-The `solrbenchmark` package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project using an environment with access to the Solr instance(s) you want to use for testing. The `pysolr` package is included as a base dependency for this project — it's expected you'll use this as the Python interface to the Solr API, even though it isn't invoked in the project code.
+### Before Getting Started
 
-(The `tests/test_runner*` tests provide a basic example using Docker to run a Solr instance. How you actually run Solr depends on what you're testing for — Docker could work fine for doing comparisons using different JVM settings or having different amounts of memory allocated. Or if you want to benchmark a live setup you'll want a Solr instance that mirrors that environment.)
+The solrbenchmark package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project in an environment with access to the Solr instance(s) you want to use for testing. For benchmarking, it's recommended to test against an isolated Solr instance. However, you could use solrbenchmarking to run tests against e.g. pre-production environments to help with stress testing and configuration. Running solrbenchmark tests against a live production Solr instance is *not* recommended.
+
+You should also install the [`pysolr`](https://pypi.org/project/pysolr/) package in the same Python environment you install `solrbenchmark` to. When you run tests, it expects you to provide a Solr connection object that uses the `pysolr.Solr` API. (The methods it uses are limited to `add`, `commit`, and `search` — so if you have a different preferred Solr API, writing an adapter would not be too difficult. See `PysolrResultLike` and `PysolrConnLike` in `solrbenchmark.localtypes` for details about the expected protocols.)
+
+
+### Considerations for Set Up and Configuration
+
+Planning how you'll go about testing before getting started will help you understand the scope of your testing. The general goal is to emulate a realistic environment in a controlled way. Things to consider:
+
+- **The document set you're going to test.**
+    - Are you testing for an existing collection or a collection that doesn't exist yet? It's easier to model your test configuration after an existing collection; for a new collection, you'll have to do some guesswork.
+    - How will you produce your test document set? With an existing collection, you can either use documents from the live document set or generate faked documents that emulate the live document set. With a new collection, you'll *have* to generate faked documents, obviously.
+        - Solrbenchmark assumes you will be generating faked documents — its tools are built around that use case. But, it could easily be adapted to use a pre-existing document set.
+        - If you need to generate faked documents, you'll need to spend time setting up the code that will generate those documents. This process is somewhat involved. See [Setting Up Your Schema](#setting-up-your-schema) for more details.
+    - How large do you need your test document set to be? Likely your test environment is a scaled-down version of your live environment. To get comparable tests, you'll want to scale your document set and your test environment similarly.
+        - Memory usage is a particularly important consideration.
+        - If you're using documents from an actual document set, you'll want a sample that's representative of the whole set, in terms of document characteristics. What exactly that means and how you approach that depends on your document set and its characteristics! If your test document set will be 10% the size of your real document set, then perhaps taking every 10th document is a good enough approach.
+        - Do Solr requirements even scale linearly to document set size? This is a valid thing to test. You could create document sets of various sizes and test each against the same configurations to see how requirements scale.
+- **The configurations you want to test.**
+    - What will your baseline look like? It should be as close to your production configuration as possible. If you're testing a collection that isn't yet in production, or if you're using a scaled testing environment, then you'll have to make an educated guess about what a good middle-of-the-road configuration would look like for your collection.
+    - What factors do you want to test? Brainstorm some variables you want to isolate and document some configurations that you want to test. Some good things to try to test include:
+        - The amount of total OS memory available to Solr. (Running your test Solr instance in a VM or Docker container makes it easy to change this.)
+        - The amount of Java heap memory available to the JVM.
+        - Other JVM settings that affect heap usage, garbage collection, etc.
+        - Document set size. How do your Solr requirements scale as your document set grows?
+        - Caches and cache sizes.
+        - Schema variations. What happens if you implement certain fields (facets, sort fields, etc.) as DocValue fields versus inverted fields?
+        - Query complexity. What happens when you run queries that include facet counts versus ones that don't? What happens when you run queries against portions of the document set (e.g. using an `'fq'` parameter)?
+        - Solr version. If you're going to be upgrading to a new version of Solr, you can compare your current version to the new version to see how it will affect performance and what you might need to tweak.
+    - In general, consider how you'll control for caching, since caching has a big impact on performance.
+        - If you want tests that eliminate caching as much as possible, you can disable the Solr caches in your solrconfig.xml and run tests that fire each search only one time.
+        - If you want tests that *only* test caching, you can enable Solr caches in your solrconfig.xml and run tests that fire each search multiple times and ignore the first N responses.
+        - If you want tests that incorporate both uncached and cached searches, you can run tests that fire each search multiple times and average the results.
+- **How will you switch your Solr configuration for each test?**
+    - Switching Solr configurations over and over for different tests can take a lot of time. Consider ways you can automate this or otherwise make it more efficient. For instance, if you're testing a finite set of variations in your schema and solrconfig.xml, you could set up a Solr core for each variation and switch between cores for each applicable test.
+    - I've found that running Solr in Docker is a good way to change otherwise hard-to-change factors, such as the amount of memory dedicated to the OS and the version of Solr you're testing against.
+- **Test parameters.**
+    - Do you want to test indexing performance? Search performance? Both?
+    - For search tests, you'll need to consider what search terms you want to test and what other query parameters you want to test, such as facet values.
+        - For search terms, we assume that you want tests that cover a range of searches — searches on common terms that will give you a large result set down to rare terms and phrases that give you smaller results sets. Generally we assume that these search terms will appear in your document set in a ~normal distribution.
+        - For facets, the two key factors are cardinality and distribution.
+            - Cardinality: The set of unique values for each facet field in your document set should reflect the same cardinality you see in the actual collection — this could be static (5 unique values) or a function of the total number of documents (1 unique facet value per 1000 documents).
+            - Distribution: Facet values probably occur in your actual document set along some kind of distribution curve — maybe a few appear very frequently with a long tail where each only appears once. You probably want to replicating a similar distribution in your test document set.
+        - If you are generating faked documents from scratch, you are probably generating random data, but you'll want to be able to generate predictable sets of search terms and facet terms — at least, ones that follow the necessary patterns — to go into your search and facet fields to produce the desired results. 
+            - For search terms, the approach that `solrbenchmark` takes is to pre-generate a list of search terms for you and then embed those in the otherwise randomly generated search fields in your faked documents to give you a realistic distribution of results. You'll then use that list of search terms to run search tests.
+            - Similarly, for facet terms, `solrbenchmark` generates a list of facet terms based on the target size for your document set (to produce the desired cardinality), and then it assigns facet values to documents to produce the desired distribution.
+        - If your test document set instead samples from an existing real document set, you will need to conduct an analysis of your document set to determine what terms you want to search and what facet values you want to use in your testing.
+
+
+### Setting Up Your Schema Faker
+
+If you are generating a test document set that uses faked data, then you will need to devote time to configuring your schema faker. In part this will involve profiling certain aspects of the real data set that you're trying to emulate.
+- Data types. Text for search fields, strings for facet fields, integers for integer fields, dates for date fields, etc.
+- Approximate size and amount of data.
+    - How much text appears in each text field, the sizes of facet strings, etc.
+    - The range and distribution of values in multi-valued fields. How often is there 1 value? 2 values? 3? etc.
+    - Occurrence of data in optional fields. Is a given field populated in 10% of records? 70%?
+- Words and word-length distributions, especially for search fields. Your text doesn't necessarily have to reflect word distributions in a given language, but it isn't difficult to model appropriate approximate distributions of word lengths.
+    - (Side note: this is honestly something I wonder about. What characteristics of text actually impact Solr performance? Presumably the number of words and word distributions *would* actually affect the size and contents of the search indexes. FUTURE TO-DO: Create an emitter type where we could generate a set vocabulary and the emitter would generate random text using that vocabulary, instead of just randomly choosing individual alphabet letters.)
+- Realistic distribution of search terms for testing against. Completely random text won't cut it for terms you need to be able to search and actually produce a sizeable result set.
+- Realistic cardinality and distribution of facet terms. Performance of faceting is known to be dependent on cardinality — how many unique facet values you have.
+
+#### Emitters, Fields, and Schemas
+
+The building blocks you'll use to create your schema faker are provided by `fauxdoc` and `solrbenchmark`. These include `Emitter` objects, which are then used in `Field` objects. A set of `Field` objects composes a `Schema` object, which you can then use to generate applicable documents.
+
+##### Emitters
+
+These are the lowest-level objects that produce data values. The `fauxdoc` library contains the components for building your emitters, which includes compound emitters. Generally, you'll go through your Solr schema and create emitters that will emit data that reflects the "actual" data in whatever ways seem important.
+
+In `solrbenchmark`, one new emitter type is added to the ones available in `fauxdoc`: `terms.TermChoice`. This is designed to help you emit search terms and facet terms in your document set so that:
+1. Each term occurs at least once in your document set.
+2. Terms otherwise follow a particular distribution.
+
+##### Fields
+
+As you create your emitters you will assign them to `Field` objects. There should be a one-to-one correspondence between your field instances and the fields in your actual Solr schema (not counting hidden field instances — see the note, below). For fields, you can assign chances that the field will be empty or not and define exactly how multiple values are generated.
+
+In `solrbenchmark`, two new field types are added to the base `Field` type available in `fauxdoc`: `schema.SearchField` and `schema.FacetField`.
+- `schema.SearchField` is what you should use for your search fields. It allows you to generate data normally but then to inject known search terms later.
+- `schema.FacetField` is what you should use for your facet fields. It allows you to generate set lists of facet terms (based on the size of a document set) and distribute those values appropriately in your document set.
+- For non-search, non-facet fields, you should use the base `Field` type.
+
+Note: It isn't unusual to have groups of Solr fields that are related or dependent in some way. A group of fields might describe the same entity and so should always have the same number of values or should always all be populated or all be empty. To accomplish this, you can create a hidden field object that generates the larger entity, and then create not-hidden fields that pull data from the hidden field (using `fauxdoc.emitters.BasedOnFields` emitters).
+
+##### Schema
+
+Your `Schema` ultimately contains all of your fields and produces your document set for you. With `solrbenchmark`, a new class overrides the base `fauxdoc.profile.Schema` class: `schema.BenchmarkSchema`. This provides all of the functionality needed to configure and use your SearchFields and FacetFields.
+
 
 ### Usage Example
 
@@ -54,22 +150,20 @@ from pathlib import Path
 import pysolr
 
 from solrbenchmark import docs, schema, terms, runner
-from solrfixtures.emitters import choice, fixed, fromfield, text
-from solrfixtures.profile import Field
+from fauxdoc.emitters import choice, fixed, fromfield, text
+from fauxdoc.profile import Field
 
 
 # ****PLANNING & SETUP
 
-# There's some planning you'll want to do up front: what configurations
-# do you want to test; how many documents do you need; do you need more
-# than one document set; what kinds of tests are you going to run; etc.
+# Let's assume you've done all the planning and setup discussed in the
+# README.
 #
-# Consider building your metadata (identifiers to ID test components
-# and configuration metadata) first. Obviously, you can change things
-# later, but this gives you something to work with.
+# You'll want to create ConfigData objects with the metadata for the
+# things you know you want to test.
 #
-# Let's say we want to run tests comparing Java heap max 410M versus
-# 820M versus 1230M.
+# For instance, let's say we want to run tests comparing Java heap max
+# 410M versus 820M versus 1230M.
 config_heap_mx410 = runner.ConfigData(
     config_id='heap-mx410',
     solr_version='8.11.1',
@@ -80,7 +174,6 @@ config_heap_mx410 = runner.ConfigData(
     jvm_memory='-Xms52M -Xmx410M',
     jvm_settings='...',
     collection_size='500,000 docs @ 950mb',
-    notes='Testing the effect of Java max heap size.'
 )
 config_heap_mx820 = config_heap_mx410.derive(
     'heap-mx820', jvm_memory='-Xms52M -Xmx820M'
@@ -89,7 +182,7 @@ config_heap_mx1230 = config_heap_mx410.derive(
     'heap-mx1230', jvm_memory='-Xms52M -Xmx1230M'
 )
 
-# We'll just have one docset of 500,000 documents.
+# We'll just use one docset containing 500,000 documents.
 docset_id = 'myschema-500000'
 
 # And we should go ahead and configure the location where we want to
@@ -97,24 +190,34 @@ docset_id = 'myschema-500000'
 savepath = Path('/home/myuser/myschema_benchmarks/heap_tests/')
 
 # Now we create our BenchmarkSchema, which reflects our Solr fields.
-# (If you use dynamic fields heavily, you'll have to know what fields
-# are actually in your data and make a concrete schema that reflects
-# whatever you have.)
+# Note: For fields where e.g. we have a display field, a facet field,
+# and a search field that all use the same value, the facet field
+# should always be the original source, as shown here. A facet field
+# should never copy or be based on another field.
 myschema = schema.BenchmarkSchema(
     Field('id', ... ),
-    Field('title_display', ... ),
-    Field('author_display', ... ),
+    schema.FacetField('title_facet', ...),
+    schema.FacetField('author_facet', ...),
+    ),
     # etc.
 )
 myschema.add_fields(
-    SearchField('title_search',
-                fromfield.CopyFields(myschema.fields['title_display'])),
-    FacetField('title_facet',
-                fromfield.CopyFields(myschema.fields['title_display'])),
-    SearchField('author_search',
-                fromfield.CopyFields(myschema.fields['author_display'])),
-    FacetField('author_facet',
-                fromfield.CopyFields(myschema.fields['author_display'])),
+    Field(
+        'title_display',
+        fromfield.CopyFields(myschema.fields['title_facet'])
+    ),
+    Field(
+        'author_display',
+        fromfield.CopyFields(myschema.fields['author_facet'])
+    ),
+    schema.SearchField(
+        'title_search',
+        fromfield.CopyFields(myschema.fields['title_facet'])
+    ),
+    schema.SearchField(
+        'author_search',
+        fromfield.CopyFields(myschema.fields['author_facet'])
+    ),
     # etc.
 )
 
@@ -124,7 +227,11 @@ myschema.add_fields(
 # being most populous.
 alphabet = text.make_alphabet([(ord('a'), ord('z'))])
 word_em = text.Word(
-    choice.poisson_choice(range(2, 11), mu=4),
+    # IMPORTANT: Below, why is `mu` 3 if we want 4-letter words to be
+    # most populous? Because the range starts at 2, a *y-axis* value of
+    # 3 corresponds with 4-letter words. (1 => 2-letter words, 2 => 3-
+    # letter words, 3 => 4-letter words.)
+    choice.poisson_choice(range(2, 11), mu=3),
     choice.Choice(alphabet)
 )
 term_em = terms.make_search_term_emitter(word_em, vocab_size=50)
@@ -144,7 +251,7 @@ docset = docs.DocSet.from_schema(docset_id, myschema, savepath=savepath)
 docset = docs.DocSet.from_disk(docset_id, savepath)
 
 # Note: At this stage our documents don't yet exist in memory -- we get
-# them via the `dset.docs` generator, and they are either created,
+# them via the `docset.docs` generator, and they are either created,
 # created and saved to disk, or read from disk one at a time. Generally
 # this will happen as they are indexed.
 
@@ -202,12 +309,12 @@ aggregate_groups = {
 # ****RUNNING BENCHMARK TESTS & REPORTING
 
 # Ultimately we want to run three tests, one for each JVM heap size we
-# want to test. How we do this largely depends on how our Solr
-# instances are set up. If we're testing against one Solr instance,
-# then we need to make sure we run one test, clear out Solr, change the
-# heap size, restart Solr, and then run the next test. Although we
-# could probably automate this using Docker, let's just create a
-# function to run one test so we can do it manually.
+# are testing. How we do this largely depends on how our Solr instances
+# are set up. If we're testing against one Solr instance, then we need
+# to make sure we run one test, clear out Solr, change the heap size,
+# restart Solr, and then run the next test. Although we could probably
+# automate this using Docker, let's just create a function to run one
+# test so we can do it manually.
 
 def run_heap_test(solrconn, configdata, docset, search_defs):
     # We'll make this interactive so it's at least partly automated.
@@ -278,139 +385,140 @@ if __name__ == '__main__':
         writer.writerows(csv_rows)
 ```
 
-
-### Your BenchmarkSchema
-
-The example above glosses over creation of the schema. This should be a `solrbenchmark.schema.BenchmarkSchema` object created using `solrfixtures.Field`-like objects that reflect fields in the schema for the Solr collection you're benchmarking. (You may need to do some profiling of your Solr collection to help you configure your BenchmarkSchema.)
-
-  - Use `solrbenchmark.schema.SearchField` objects for the Solr fields you're going to want to search against while running tests. Each of these will have search terms from a controlled list injected so you'll get predictable results.
-  - Use `solrbenchmark.schema.FacetField` objects for the Solr fields you'll want to facet against. Each of these will have sets of facet terms generated based on cardinality you can configure for each. (I.e., how many unique facet terms for each field.)
-  - Use `solrfixture.Field` objects to populate fields you aren't querying against but still need to represent.
+[Top](#top)
 
 
 ## Contributing
 
-### Install for Development
+### Installing for Development and Testing
 
-Set up your SSH key or personal access token as [described above](#installation), and then:
-
-```bash
-git clone git+ssh://git@content.library.unt.edu/utilities/pypackages/solrbenchmark solrbenchmark
-```
-
-#### Poetry
-
-This project uses [Poetry](https://python-poetry.org/) for builds and dependency management. You don't *have* to install it system-wide if you don't want to; I'm relatively new to Poetry myself and prefer to isolate it within each virtual environment that needs it instead of using a global Poetry instance to manage my virtual environments. In part this is because I also use tox.
-
-#### Tox
-
-[Tox](https://tox.wiki/en/latest/) is useful for testing against multiple versions of Python. Just like Poetry, I prefer to isolate tox within a virtual environment rather than installing it system wide. (What can I say, I have commitment issues.)
-
-#### My Setup
-
-Disclaimer: Python environment and dependency management is notoriously insane. I make no claims that my setup is _objectively_ good, but it works well for me, and it informs how the projects I maintain were built. Obviously this is not the only way to do it.
-
-This is all about keeping components as isolated as possible so that nothing is hardwired and I can switch things out at will. Since both tox and Poetry can be used to manage virtual environments, this is the best way I've found to ensure they play well together. I've been quite happy with using pyenv + pyenv-virtualenv as my version / environment manager.
-
-1. Install and configure [pyenv](https://github.com/pyenv/pyenv).
-2. Install and configure [pyenv-virtualenv](https://github.com/pyenv/pyenv-virtualenv).
-3. Use pyenv to download and install the currently supported Python versions, e.g. 3.7 to 3.10. (`pyenv install 3.7.13`, etc.)
-4. For a project like solrbenchmark, I use pyenv-virtualenv to create my development environment with the latest Python version: `pyenv virtualenv 3.10.4 solrbenchmark-3.10.4`.
-5. `cd` into the local repository root for this project and activate that virtualenv: `pyenv activate solrbenchmark-3.10.4`.
-6. Do `pip install poetry`. (This installs Poetry into that virtualenv _only_.)
-7. Do `poetry lock` to resolve dependencies and generate a `poetry.lock` file.
-    - *Important*: The `solrbenchmark` project depends on the `solrfixtures` project, which currently lives only in this GitLab repository. In order for Poetry to resolve that dependency, it needs to be able to authenticate. If you're using the SSH key authentication method for this repository *and you have a passcode on your SSH key*, then you must run both this step and the next in an `ssh-agent` bash shell with your key loaded. Otherwise, Poetry will hang while it's trying to resolve dependencies.
-8. Do `poetry install -E test` to install dependencies, including those needed for tests.
-
-Now your dev virtual environment is all ready to go. As long as `solrbenchmark-3.10.4` is activated, you can use Poetry commands to manage dependencies and run builds; Poetry knows to install things to that environment.
-
-But what if you want to develop against a different Python version? Just deactivate your environment (`pyenv deactivate`) and run through steps 4-8 again, substituting a different base Python in step 4, like `pyenv virtualenv 3.7.13 solrbenchmark-3.7.13`. Creating and configuring a new virtualenv takes just a minute or two. With the setup operationalized via `pyproject.toml` and Poetry, virtual environments are largely disposable.
-
-And tox fits well into this workflow, since it automates this in its own way. Each time you run tox, it automatically builds the necessary virtual environments — one for each version of Python specified, plus additional ones for linting etc. (as applicable). All you have to do is expose all the binaries on the path you need to run, and tox will automatically pick up the correct binary for each environment it's told to create. Since pyenv lets you activate multiple Python versions at once in a way that tox recognizes, it works perfectly for this — ANY of the base Python versions or virtualenvs you have installed via pyenv can serve as the basis for tox's environments.
-
-The added setup needed for tox is minimal:
-
-1. You do need to have an environment with tox installed. Although you can do it system-wide, I prefer to create a virtualenv just for tox. I always use the latest version of Python (e.g., currently `tox-3.10.4`).
-2. Activate the new virtualenv and do `pip install tox`. (Nothing else.)
-3. Now, in your project repository root (for solrbenchmark), create a file called `.python-version`. Add all of the Python versions you want to use, 3.7 to 3.10. For 3.10, use your new `tox-3.10.4`. This should look something like this:
-    ```
-    3.7.13
-    3.8.13
-    3.9.11
-    tox-3.10.4
-    ```
-4. Issue a `pyenv deactivate` command so that pyenv picks up what's in the file. (A manually-activated environment overrides anything set in a `.python-version` file.)
-5. At this point you should have all four environments active at once in that directory. You can issue commands that run using binaries from any of those versions, and they will run correctly. For commands that multiple environments share, like `python`, the one for the first Python version listed is what runs. In other words — if you run `python` or `python3.7` then you'll get a 3.7.13 shell. If you run `python3.9` you'll get the 3.9.11 shell. When you run `tox`, the tox in your `tox-3.10.4` environment will run. But — even though tox only lives in that one virtual environment, because you have these various other Python base versions exposed this way, tox finds and picks the correct one for each environment it's configured to generate. You can even configure multiple environments set to run against the same Python version, such as if you separately want to test the set of minimum and maximum dependency versions for each Python.
-
-So, in my workflow, I tend to develop using an environment like `solrbenchmark-3.10.4`, from earlier. As I work, I generally just run individual tests against the one environment, issuing the appropriate `pytest` command. Then, when I've finished some unit of work — usually before a commit — I use tox to run linters plus the full suite of tests. 99% of the time you won't have errors in earlier Python versions that don't show up when testing against your dev environment, so there's no need to take the extra time to run the full tox suite more often than that. (Admittedly sometimes I run it even less frequently.)
+Fork the project on GitHub and then clone it locally:
 
 ```bash
-$ pyenv activate solrbenchmark-3.10.4  # Toggle a dev virtualenv ON.
-# ...                                    Work on the project.
-$ pytest tests/test_something.py -x    # Run specific tests against 3.10.4.
-# ...                                    Continue developing / running tests.
-$ pyenv deactivate                     # When ready for tox, Toggle dev OFF.
-$ tox -e flake8                        # Run flake8. Fix errors until this passes.
-$ tox -e pylint_critical               # Run critical pylint tests. Fix.
-$ tox -e mypy                          # Run mypy tests. Fix.
-$ tox                                  # Run ALL tox tests. Fix.
-$ git add .
-$ git commit
-# etc.
+git clone https://github.com/[your-github-account]/solrbenchmark.git
 ```
 
-Further, the tox / multi-Python setup above works for ANY projects on a given machine, as long as you create that `.python-version` file in the project root. You don't even have to create different virtualenvs for tox — that is, until you want to upgrade a project to a different Python version, at which point you may need to use multiple `tox-` environments if different projects need different 3.10 versions.
+All dependency and build information is defined in `pyproject.toml` and follows [PEP 621](https://peps.python.org/pep-0621/). From the solrbenchmark root directory, you can install it as an editable project into your development environment with:
 
-And this illustrates the only "painful" part of this workflow: managing entropy over time. As new Python versions come out, it's simple enough to update pyenv, install the new versions, and create new virtual environments. You just have to be systematic about managing things, _especially_ with multiple projects. E.g., you can't remove a Python version from your system entirely until you've updated all your projects to use the newer version, so over time you may end up with a lot of different Python versions installed, with different projects using different versions. As long as you label your virtualenvs with the version of Python they use (as above) you can at least see what's being used where. (I suspect this is a pain point with *any* workflow.)
+```bash
+python -m pip install -e .[dev]
+```
 
-### Tests
+The `[dev]` ensures it includes the optional development dependencies:
+- `pytest`
+- `pysolr`
+- `python-dotenv`
 
-#### Docker and docker-solr
+Note that the last two development dependencies are only used for running integration tests.
 
-Since `solrbenchmark` requires Solr, some tests require an active Solr instance. For this I've supplied configuration to run Solr over Docker using [the official docker-solr image](https://github.com/docker-solr/docker-solr).
 
-First, [download and install Docker](https://www.docker.com/get-started/) if you don't already have it.
+### Running Tests
 
-##### Optional Configuration
+#### Unit Tests
 
-If necessary, you can create a `tests/.env` file to configure the following options.
+Run unit tests in your active environment by invoking:
 
-- `SOLR_HOST` — Defines what host to bind Solr to. Default is 127.0.0.1. (You shouldn't have to change this.)
-- `SOLR_PORT` — Defines the host port on which to expose Solr. Default is :8983. Change this if there is a port conflict.
+```bash
+pytest --ignore=tests/integration 
+```
+
+from the solrbenchmark root directory.
+
+#### Integration tests
+
+I've written a small number of integration tests that test against an actual running Solr instance. These and all configuration needed to run them are in the `tests/integration` directory.
+
+To run them, you can either provide your own test Solr core that uses the configuration in the `tests/integration/solrconf` directory or use Docker and docker-compose.
+
+By default we expect Solr to run on 127.0.0.1:8983 using a core called `test_core`. You can change any of these values by setting them in a `tests/integration/.env` file, using `tests/integration/template.env` as a template. If the defaults are fine, you do not need to create the .env file.
+
+**IMPORTANT** — The integration tests expect the test core to start out empty, and they will clear it out when they complete. DO NOT USE IT FOR ANYTHING OTHER THAN THESE TESTS.
+
+##### Using Docker-solr
+
+To use Docker, you must [have Docker and docker-compose installed](https://www.docker.com/get-started/). The supplied configuration will run Solr over Docker using [the official docker-solr image](https://github.com/docker-solr/docker-solr).
 
 By default, when you run Solr, you can access the admin console at `localhost:8983`.
-
-##### Running `docker-solr`
 
 Launch `docker-solr` like this:
 
 ```bash
-$ cd tests
+$ cd tests/integration
 $ ./docker-compose.sh up -d
 ```
 
-The first time you run it, it will pull down the Solr image, which may take a few minutes. Also, note that you can leave off the `-d` to run Solr in the foreground, if you want to see what Solr is logging.
+The first time you run it, it will pull down the Solr image, which may take a few minutes. Also, note that you can leave off the `-d` to run Solr in the foreground, if you want to see what Solr logs as it runs.
 
-##### Stopping `docker-solr`
-
-I generally launch my test Solr instance once when I start a work session and then just leave it running so I can test against it. When I'm done with a work session, such as at the end of the day, I stop Solr, like this:
+If you've launched `docker-solr` using `-d`, you can stop it like this:
 
 ```bash
 $ ./docker-compose.sh down
 ```
 
-#### Running Tests
+If it's running in the foreground, you can stop it with ctrl+c.
+
+##### Running Integration Tests
 
 Make sure your test Solr instance is up and running on whatever host/port is set in your `.env` file (127.0.0.1:8983 by default).
 
 Then:
 
 ```bash
-$ pytest
+$ pytest -k integration
 ```
 
-If you've set up tox as [described above](#my-setup), you can run the full test suite using:
+#### Tox
+
+Because this is a library, it needs to be tested against all supported environments for each update, not just one development environment. The tool we use for this is [tox](https://tox.wiki/en/latest/).
+
+Rather than use a separate `tox.ini` file, I've opted to put the tox configuration directly in `pyproject.toml` (under the `[tool.tox]` table). There, I've defined several environments: flake8, pylint, and each of py37 through py311 using both the oldest possible dependencies and newest possible dependencies. When you run tox, you can target a specific environment, a specific list of environments, or all of them.
+
+When tox runs, it automatically builds each virtual environment it needs, and then it runs whatever commands it needs within that environment (for linting, or testing, etc.). All you have to do is expose all the necessary Python binaries on the path, and tox will pick the correct one. My preferred way to manage this is with [pyenv](https://github.com/pyenv/pyenv) + [pyenv-virtualenv](https://github.com/pyenv/pyenv-virtualenv).
+
+For example: Install these tools along with the Python versions you want to test against. Then:
+
+1. Create an environment with tox installed. E.g.:
+    ```
+    pyenv virtualenv 3.10.8 tox-3.10.8
+    pyenv activate
+    python -m pip install tox
+    ```
+2. In the project repository root, create a file called `.python-version`. Add all of the Python versions you want to use, e.g., 3.7 to 3.11. For 3.10, use your `tox-3.10.8`. This should look something like this:
+    ```
+    3.7.15
+    3.8.15
+    3.9.15
+    tox-3.10.8
+    3.11.0
+    ```
+4. If `tox-3.10.8` is still activated, issue a `pyenv deactivate` command so that pyenv picks up what's in the file. (A manually-activated environment overrides anything set in a `.python-version` file.)
+5. At this point you should have all five environments active at once in that directory. When you run `tox`, the tox in your `tox-3.10.8` environment will run, and it will pick up the appropriate binaries automatically (`python3.7` through `python3.11`) since they're all on the path.
+
+Now you can just invoke tox to run linters and all the tests against all the environments:
 
 ```bash
-$ tox
+tox
 ```
+
+Or just run linters:
+
+```bash
+tox -e flake8,pylint_critical
+```
+
+Or run tests against a list of specific environments:
+
+```bash
+tox -e py39-oldest,py39-newest
+```
+
+See the [pyproject.toml](pyproject.toml) file for a list of all available tox environments. Some are NOT included in the default `tox` invocation, such as running integration tests and builds.
+
+[Top](#top)
+
+
+## License
+
+See the [LICENSE](LICENSE) file.
+
+[Top](#top)
