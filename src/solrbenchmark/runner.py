@@ -2,14 +2,12 @@
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 import re
-from typing import (
-    Any, Dict, Iterable, Mapping, Optional, Sequence, Tuple, Type, TypeVar,
-    Union
-)
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Type, TypeVar
 
 from solrbenchmark.localtypes import (
-    BenchmarkLogReport, Number, PathLike, PysolrConnLike,
-    RunSearchesReturn, SearchReturn, TermResultsArg
+    BenchmarkLogReport, CompiledEventTimingsInfo, ConfigDataLike, PathLike,
+    PysolrConnLike, RawEventTimings, SearchResult, SearchSetResult,
+    SearchStats, Stats, StatsWithTimings, TermResult
 )
 
 from solrbenchmark.docs import DocSet
@@ -137,8 +135,9 @@ class BenchmarkLog:
     Attributes:
         docset_id: The unique ID str for the document set used in the
             tests that created this log instance.
-        configdata: The ConfigData object storing configuration info
-            for the tests that created this log instance.
+        configdata: The ConfigData or ConfigData-like object storing
+            configuration info for the tests that created this log
+            instance.
         indexing_stats: A dictionary containing stats from the
             'indexing' portion of a benchmark test run. If indexing
             tests have not yet been run, this is an empty dict. Else,
@@ -170,7 +169,8 @@ class BenchmarkLog:
                              'hits': 36,
                              'qtime_ms': 290},
                         ],
-                        'avg_qtime_ms': 771.6667
+                        'avg_qtime_ms': 771.6667,
+                        'total_qtime_ms': 2315
                     },
                     'Second search set label': {
                         'term_results': [
@@ -184,7 +184,8 @@ class BenchmarkLog:
                              'hits': 36,
                              'qtime_ms': 95},
                         ],
-                        'avg_qtime_ms': 298.0
+                        'avg_qtime_ms': 298.0,
+                        'total_qtime_ms': 894
                     }
                 }
             Each top-level dictionary key is a label containing a
@@ -198,7 +199,7 @@ class BenchmarkLog:
             object.
     """
 
-    def __init__(self, docset_id: str, configdata: ConfigData) -> None:
+    def __init__(self, docset_id: str, configdata: ConfigDataLike) -> None:
         """Inits a BenchmarkLog instance.
 
         Args:
@@ -207,9 +208,9 @@ class BenchmarkLog:
         """
         self.docset_id = docset_id
         self.configdata = configdata
-        self.indexing_stats = {}
-        self.search_stats = {}
-        self._filepath = None
+        self.indexing_stats: Stats = {}
+        self.search_stats: SearchStats = {}
+        self._filepath: Optional[Path] = None
 
     @property
     def filepath(self) -> Optional[Path]:
@@ -244,31 +245,32 @@ class BenchmarkLog:
             'indexing_stats': self.indexing_stats,
             'search_stats': self.search_stats
         })
-        with open(filepath, 'w') as json_fh:
+        with open(self._filepath, 'w') as json_fh:
             json_fh.write(json_str)
-        return filepath
+        return self._filepath
 
     @classmethod
     def load_from_json_file(cls: Type[B],
                             filepath: PathLike,
-                            cfgdata_cls: Type[C] = ConfigData) -> B:
+                            cd_cls: Type[ConfigDataLike] = ConfigData) -> B:
         """Creates a new BenchmarkLog from data saved to disk.
 
         Args:
             filepath: A pathlib.Path-like or str pointing to the full
                 path for the save file to load (including filename).
-            cfgdata_cls: (Optional.) The class to use when recreating
-                the `configdata` attribute. This should be ConfigData
-                or a subclass; by default, it is ConfigData.
+            cd_cls: (Optional.) The class to use when recreating the
+                `configdata` attribute. By default, this is ConfigData,
+                but it can be a subclass or any ConfigDataLike type
+                that stores your configuration data.
         """
         with open(filepath) as f:
             json_str = f.read()
         data = ujson.loads(json_str)
-        configdata = cfgdata_cls(**data['configdata'])
+        configdata = cd_cls(**data['configdata'])
         bmark_log = cls(data['docset_id'], configdata)
         bmark_log.indexing_stats = data['indexing_stats']
         bmark_log.search_stats = data['search_stats']
-        bmark_log._filepath = filepath
+        bmark_log._filepath = Path(filepath)
         return bmark_log
 
     def compile_report(self,
@@ -376,18 +378,18 @@ class BenchmarkLog:
         i_stats = self.indexing_stats
         s_stats = self.search_stats
         i_avg_label = f"avg per {i_stats['batch_size']} docs"
-        data = {
+        data: BenchmarkLogReport = {
             'ADD': {
-                'total': (i_stats.get('indexing_total_secs'), 's'),
-                i_avg_label: (i_stats.get('indexing_average_secs'), 's')
+                'total': (i_stats.get('indexing_total_secs', 0), 's'),
+                i_avg_label: (i_stats.get('indexing_average_secs', 0), 's')
             },
             'COMMIT': {
-                'total': (i_stats.get('commit_total_secs'), 's'),
-                i_avg_label: (i_stats.get('commit_average_secs'), 's')
+                'total': (i_stats.get('commit_total_secs', 0), 's'),
+                i_avg_label: (i_stats.get('commit_average_secs', 0), 's')
             },
             'INDEXING': {
-                'total': (i_stats.get('total_secs'), 's'),
-                i_avg_label: (i_stats.get('average_secs'), 's')
+                'total': (i_stats.get('total_secs', 0), 's'),
+                i_avg_label: (i_stats.get('average_secs', 0), 's')
             },
             'SEARCH': {
                 'BLANK': {},
@@ -428,17 +430,25 @@ class BenchmarkLog:
 
 def _scrape_qtime(solr_response: str) -> float:
     """Returns the query time (in seconds!) from a Solr response str."""
+    pattern = r'QTime\D+(\d+)'
+    qt_match = re.search(pattern, solr_response)
     try:
-        qtime = re.search(r'QTime\D+(\d+)', solr_response).group(1)
+        qtime = qt_match.group(1)  # type: ignore[union-attr]
     except AttributeError:
-        return
+        raise ValueError(
+            f"Cannot scrape query time from Solr response string. Looking "
+            f"for pattern r'{pattern}' in: {solr_response}."
+        )
     return int(qtime) * 0.001
 
 
-def _compile_timings_stats(timings: Sequence[Tuple[str, Number]]
-                           ) -> Dict[str, Dict[str, float]]:
-    """Compiles stats from a sequence of (event, timing) sequences."""
-    stats = {'timings': {}, 'totals': {}, 'averages': {}}
+def _compile_timings(timings: RawEventTimings) -> CompiledEventTimingsInfo:
+    """Compiles timings from a sequence of raw (event, timing) tuples."""
+    stats: CompiledEventTimingsInfo = {
+        'timings': {},
+        'totals': {},
+        'averages': {}
+    }
     default_time = 0
     for event, time in timings:
         stats['timings'][event] = stats['timings'].get(event, []) + [time]
@@ -450,11 +460,11 @@ def _compile_timings_stats(timings: Sequence[Tuple[str, Number]]
     return stats
 
 
-def _compile_indexing_results(timings: Sequence[Tuple[str, Number]],
+def _compile_indexing_results(raw_timings: RawEventTimings,
                               ndocs: int,
-                              batch_size: int) -> Dict[str, Number]:
+                              batch_size: int) -> StatsWithTimings:
     """Compiles stats from a sequence of indexing timings."""
-    tstats = _compile_timings_stats(timings)
+    tstats = _compile_timings(raw_timings)
     timings = tstats['timings']
     totals = tstats['totals']
     avgs = tstats['averages']
@@ -473,8 +483,7 @@ def _compile_indexing_results(timings: Sequence[Tuple[str, Number]],
     }
 
 
-def _compile_search_results(term_results: TermResultsArg
-                            ) -> Dict[str, Union[float, TermResultsArg]]:
+def _compile_search_results(term_results: List[TermResult]) -> SearchSetResult:
     """Compiles qtime averages from qtimes in term results."""
     qtime = sum([r['qtime_ms'] for r in term_results])
     return {
@@ -554,10 +563,10 @@ class BenchmarkRunner:
             conn: See the `conn` attribute.
         """
         self.conn = conn
-        self.log = None
-        self.log_basepath = None
+        self.log: Optional[BenchmarkLog] = None
+        self.log_basepath: Optional[Path] = None
 
-    def configure(self, docset_id: str, configdata: ConfigData) -> R:
+    def configure(self: R, docset_id: str, configdata: ConfigDataLike) -> R:
         """Assigns new config data for the next run of tests.
 
         This is one of two methods you can use to configure a new
@@ -571,8 +580,8 @@ class BenchmarkRunner:
         Args:
             docset_id: The unique ID str for the document set you'll
                 use in the next test run.
-            configdata: The ConfigData object storing Solr config info
-                for the next test run.
+            configdata: The ConfigData or ConfigData-like object
+                storing Solr config info for the next test run.
 
         Returns:
             This BenchmarkRunner instance.
@@ -580,7 +589,7 @@ class BenchmarkRunner:
         self.log = BenchmarkLog(docset_id, configdata)
         return self
 
-    def configure_from_saved_log(self, log_path: PathLike) -> R:
+    def configure_from_saved_log(self: R, log_path: PathLike) -> R:
         """Assigns config data from a saved BenchmarkLog.
 
         This is one of two methods you can use to configure a new
@@ -627,9 +636,11 @@ class BenchmarkRunner:
         """
         try:
             return compose_log_json_filepath(
-                self.log_basepath, self.log.docset_id, self.log.config_id
+                self.log_basepath,    # type: ignore[arg-type]
+                self.log.docset_id,   # type: ignore[union-attr]
+                self.log.config_id    # type: ignore[union-attr]
             )
-        except TypeError:
+        except (TypeError, AttributeError):
             return None
 
     def save_log(self, basepath: Optional[PathLike] = None) -> Path:
@@ -648,10 +659,12 @@ class BenchmarkRunner:
             A pathlib.Path object referencing the full path of the
                 saved file.
         """
-        self.log_basepath = basepath or self.log_basepath
+        self.log_basepath = Path(basepath) if basepath else self.log_basepath
         try:
-            return self.log.save_to_json_file(self.logpath)
-        except (TypeError, FileNotFoundError):
+            return self.log.save_to_json_file(  # type: ignore[union-attr]
+                self.logpath                    # type: ignore[arg-type]
+            )
+        except (TypeError, AttributeError, FileNotFoundError):
             raise ValueError(
                 f"Attempted to save log data to `{self.logpath}`, an invalid "
                 f"path. Please provide a valid directory for the 'basepath' "
@@ -661,7 +674,7 @@ class BenchmarkRunner:
     def index_docs(self,
                    docset: DocSet,
                    batch_size: int = 1000,
-                   verbose: bool = True) -> Dict[str, Number]:
+                   verbose: bool = True) -> StatsWithTimings:
         """Runs indexing tests against the provided DocSet.
 
         Timings for adding documents to the index and committing them
@@ -702,8 +715,8 @@ class BenchmarkRunner:
                     'average_secs': 15.242
                 }
         """
-        def _do(batch, i):
-            timings = []
+        def _do(batch: List[Dict[str, Any]], i: int) -> RawEventTimings:
+            timings: RawEventTimings = []
             if verbose:
                 print(f'Indexing {i + 1 - batch_size} to {i}.')
             index_response = self.conn.add(batch, commit=False)
@@ -722,14 +735,20 @@ class BenchmarkRunner:
                 '`configure` or `configure_from_saved_log` methods.'
             )
 
-        if self.log.docset_id != docset.id:
+        # This next line is a little redundant, but it makes it simpler
+        # to ignore mypy errors that occur because self.log is defined
+        # elsewhere as potentially being None. In reality, the previous
+        # check for `self.is_configured` ensures self.log is not None
+        # when we get to this point.
+        log_docset_id = self.log.docset_id  # type: ignore[union-attr]
+        if log_docset_id != docset.id:
             raise RunnerConfigurationError(
                 f"The 'id' of the given docset (`{docset.id}`) does not match "
-                f"the configured 'docset_id' (`{self.log.docset_id}`)."
+                f"the configured 'docset_id' (`{log_docset_id}`)."
             )
 
-        timings = []
-        batch = []
+        timings: RawEventTimings = []
+        batch: List[Dict[str, Any]] = []
         for i, doc in enumerate(docset.docs):
             if verbose and i % batch_size == 0:
                 print('Gathering docs.')
@@ -742,7 +761,7 @@ class BenchmarkRunner:
 
         total = docset.total_docs
         stats = _compile_indexing_results(timings, total, batch_size)
-        self.log.indexing_stats = stats
+        self.log.indexing_stats = stats  # type: ignore[union-attr]
         return stats
 
     def search(self,
@@ -750,7 +769,7 @@ class BenchmarkRunner:
                kwargs: Mapping[str, Any],
                rep_n: int = 1,
                ignore_n: int = 0,
-               blank_q: str = '') -> SearchReturn:
+               blank_q: str = '') -> SearchResult:
         """Fires one Solr search test and returns the result.
 
         Args:
@@ -782,8 +801,8 @@ class BenchmarkRunner:
               first `ignore_n` repetitions.
         """
         q = q or blank_q
-        timings = []
-        hits = None
+        timings: RawEventTimings = []
+        hits = 0
         for i in range(rep_n):
             if i < ignore_n:
                 result = self.conn.search(q=q, **kwargs)
@@ -791,7 +810,7 @@ class BenchmarkRunner:
                 result = self.conn.search(q=q, **kwargs)
                 hits = hits or result.hits
                 timings.append(('search', result.qtime))
-        tstats = _compile_timings_stats(timings)
+        tstats = _compile_timings(timings)
         # The canonical query time for this search is the average of
         # the repetitions, excluding the ones we ignored.
         qtime_ms = round(tstats['averages'].get('search', 0), 4)
@@ -802,13 +821,13 @@ class BenchmarkRunner:
         }
 
     def run_searches(self,
-                     terms: Iterable[str],
+                     terms: Sequence[str],
                      label: str,
                      query_kwargs: Optional[Mapping[str, Any]] = None,
                      rep_n: int = 0,
                      ignore_n: int = 0,
                      blank_q: str = '',
-                     verbose: bool = True) -> RunSearchesReturn:
+                     verbose: bool = True) -> SearchSetResult:
         """Runs one set of test searches.
 
         Running a "set of test searches" comprises querying Solr for
@@ -827,7 +846,7 @@ class BenchmarkRunner:
         for that key.
 
         Args:
-            terms: An iterable containing search terms to test.
+            terms: A sequence containing search terms to test.
             label: A meaningful label for this test set.
             query_kwargs: (Optional.) A dict containing static
                 parameters to send to Solr with each query. Default is
@@ -863,7 +882,8 @@ class BenchmarkRunner:
                          'hits': 36,
                          'qtime_ms': 290},
                     ],
-                    'avg_qtime_ms': 771.6667
+                    'avg_qtime_ms': 771.6667,
+                    'total_qtime_ms': 2315
                 }
         """
         if not self.is_configured:
@@ -873,7 +893,7 @@ class BenchmarkRunner:
             )
         if verbose:
             print(f'{label} ({len(terms)} searches) ', end='', flush=True)
-        term_results = []
+        term_results: List[TermResult] = []
         for term in terms:
             result = self.search(term, query_kwargs or {}, rep_n, ignore_n)
             term_results.append({
@@ -886,5 +906,5 @@ class BenchmarkRunner:
         if verbose:
             print(flush=True)
         stats = _compile_search_results(term_results)
-        self.log.search_stats[label] = stats
+        self.log.search_stats[label] = stats  # type: ignore[union-attr]
         return stats

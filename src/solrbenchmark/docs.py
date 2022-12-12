@@ -1,8 +1,8 @@
 """Tools for making, saving, and loading sets of documents."""
 from pathlib import Path
 from typing import (
-    Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Type,
-    TypeVar, Union
+    Any, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple,
+    Type, TypeVar, Union
 )
 
 from solrbenchmark.localtypes import (
@@ -158,10 +158,10 @@ class FileSet:
         self._terms_fpath = compose_terms_json_filepath(basepath, docset_id)
         self._docs_fpath = compose_docs_json_filepath(basepath, docset_id)
         self._counts_fpath = compose_counts_json_filepath(basepath, docset_id)
-        self._search_terms = None
-        self._facet_terms = None
-        self._total_docs = None
-        self._facet_value_counts = None
+        self._search_terms: Optional[List[str]] = None
+        self._facet_terms: Optional[Dict[str, List[str]]] = None
+        self._total_docs: int = 0
+        self._facet_value_counts: Optional[FacetValueCountsReturn] = None
 
     @property
     def docset_id(self) -> str:
@@ -236,7 +236,7 @@ class FileSet:
         return _is_file_empty(self._counts_fpath)
 
     @property
-    def search_terms(self) -> List[str]:
+    def search_terms(self) -> Optional[List[str]]:
         """The list of search terms from 'terms'.
 
         See the `search_terms` attribute.
@@ -246,7 +246,7 @@ class FileSet:
         return self._search_terms
 
     @property
-    def facet_terms(self) -> Dict[str, List[str]]:
+    def facet_terms(self) -> Optional[Dict[str, List[str]]]:
         """A dict mapping facet names to facet terms, from 'terms'.
 
         See the `facet_terms` attribute.
@@ -261,12 +261,12 @@ class FileSet:
 
         See the `total_docs` attribute.
         """
-        if self._total_docs is None:
+        if self._total_docs == 0:
             self._refresh_counts()
         return self._total_docs
 
     @property
-    def facet_value_counts(self) -> FacetValueCountsReturn:
+    def facet_value_counts(self) -> Optional[FacetValueCountsReturn]:
         """Dict mapping facets to fvalue counts, based on 'docs'.
 
         The returned dict is structured as follows:
@@ -313,7 +313,7 @@ class FileSet:
                         data: Optional[Mapping[str, Any]] = None) -> None:
         """Refreshes counts from the file or from the provided data."""
         data = data or _get_data(self._counts_fpath)
-        self._total_docs = data.get('total_docs')
+        self._total_docs = data.get('total_docs', 0)
         self._facet_value_counts = data.get('facet_value_counts')
 
     def save_terms(self,
@@ -368,7 +368,7 @@ class FileSet:
         self._refresh_counts(data)
 
     def stream_docs_to_file(self,
-                            docs: Iterable[Mapping[str, Any]],
+                            docs: Iterable[Dict[str, Any]],
                             overwrite: bool = True
                             ) -> Iterator[Dict[str, Any]]:
         """Create an iterator that saves docs to disk as it iterates.
@@ -408,7 +408,7 @@ class FileSet:
             pass
         self._search_terms = None
         self._facet_terms = None
-        self._total_docs = None
+        self._total_docs = 0
         self._facet_value_counts = None
 
 
@@ -545,10 +545,10 @@ class SchemaToFileSetLikeAdapter:
     def _make_initial_docs_iterator(self) -> Iterator[Dict[str, Any]]:
         """Configures and returns a basic docs iterator."""
         self._total_docs = 0
-        self._facet_value_counts = {}
-        self._facet_value_groups = {}
+        self._facet_value_counts: Dict[str, List[Tuple[str, int]]] = {}
+        self._facet_value_groups: Dict[str, Dict[str, int]] = {}
         self._schema.reset_fields()
-        for _ in range(self._schema.num_docs):
+        for _ in range(self._schema.num_docs or 0):
             doc = self._schema()
             self._update_tallies(doc)
             yield doc
@@ -603,7 +603,7 @@ class SchemaToFileSetLikeAdapter:
         return self._schema
 
     @property
-    def search_terms(self) -> List[str]:
+    def search_terms(self) -> Optional[List[str]]:
         """The list of search terms from the schema.
 
         See the `search_terms` attribute.
@@ -725,7 +725,7 @@ class DocSet:
         return self.source.docset_id
 
     @property
-    def search_terms(self) -> List[str]:
+    def search_terms(self) -> Optional[List[str]]:
         """The list of search terms from the data source.
 
         See the `search_terms` attribute.
@@ -733,7 +733,7 @@ class DocSet:
         return self.source.search_terms
 
     @property
-    def facet_terms(self) -> Dict[str, List[str]]:
+    def facet_terms(self) -> Optional[Dict[str, List[str]]]:
         """The facet_terms dict from the data source.
 
         See the `facet_terms` attribute.
@@ -765,17 +765,17 @@ class DocSet:
         return self.source.facet_value_counts
 
     @property
-    def fileset(self) -> FileSet:
+    def fileset(self) -> Optional[FileSet]:
         """The FileSet where data for this DocSet is saved.
 
         See the `fileset` attribute.
         """
         try:
             # Is the source itself a FileSet-like object?
-            self.source.basepath
+            self.source.basepath  # type: ignore[union-attr]
         except AttributeError:
-            return self.source.fileset
-        return self.source
+            return self.source.fileset  # type: ignore[union-attr]
+        return self.source  # type: ignore[return-value]
 
     @classmethod
     def from_schema(cls: Type[D],

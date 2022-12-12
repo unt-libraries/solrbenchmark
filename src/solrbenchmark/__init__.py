@@ -1,8 +1,11 @@
 """Tools for running Solr benchmarking tests."""
-try:
+import sys
+
+if sys.version_info >= (3, 8):
     from importlib import metadata
-except (ImportError, ModuleNotFoundError):
+else:
     import importlib_metadata as metadata
+
 from . import docs
 from . import runner
 from . import schema

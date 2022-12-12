@@ -10,7 +10,7 @@ from fauxdoc.profile import Field, Schema
 from fauxdoc.typing import (
     BoolEmitterLike, FieldLike, IntEmitterLike, StrEmitterLike
 )
-from solrbenchmark.localtypes import ItemsStrEmitterLike, Number
+from solrbenchmark.localtypes import InjectVal, ItemsStrEmitterLike, Number
 from solrbenchmark import terms
 
 
@@ -52,6 +52,7 @@ class SearchField(Field):
         gate_emitter: See fauxdoc.profile.Field.gate_emitter.
         multi_valued: See fauxdoc.profile.Field.multi_valued.
         hide: See fauxdoc.profile.Field.hide.
+        rng: See fauxdoc.profile.Field.rng.
         rng_seed: See fauxdoc.profile.Field.rng_seed.
         previous: See fauxdoc.profile.Field.previous.
         terms: The full list of terms that the `term_emitter` can emit.
@@ -89,8 +90,8 @@ class SearchField(Field):
             gate: (Optional.) See `gate` attribute.
             rng_seed: (Optional.) See `rng_seed` attribute.
         """
-        self._weights = {}
-        self._chances = {}
+        self._weights: Dict[str, List[Number]] = {}
+        self._chances: Dict[str, Number] = {}
         super().__init__(name, emitter, repeat=repeat, gate=gate, hide=False,
                          rng_seed=rng_seed)
         # This runs the term_emitter setter, which calls the
@@ -225,7 +226,7 @@ class SearchField(Field):
                                     cum_weights=self._weights['overwrite'])[0]
         return False
 
-    def _inject(self, val: Union[str, List[str]]) -> Union[str, List[str]]:
+    def _inject(self, val: InjectVal) -> InjectVal:
         """Chooses and injects a term into the given string or list.
 
         If `val` is a list (for a multi-valued field), a non-None value
@@ -366,6 +367,7 @@ class FacetField(Field):
         gate_emitter: See fauxdoc.profile.Field.gate_emitter.
         multi_valued: See fauxdoc.profile.Field.multi_valued.
         hide: See fauxdoc.profile.Field.hide.
+        rng: See fauxdoc.profile.Field.rng.
         rng_seed: See fauxdoc.profile.Field.rng_seed.
         previous: See fauxdoc.profile.Field.previous.
         terms: The full list of facet terms that the field emitter can
@@ -448,7 +450,7 @@ class FacetField(Field):
     def build_facet_values_for_docset(self, total_docs: int) -> None:
         """Builds or rebuilds facet values for a document set.
 
-        Note that this regenerates facets terms and resets the field
+        Note that this regenerates facet terms and resets the field
         each time it runs. You only need to run it once per full
         document set.
 
@@ -461,7 +463,9 @@ class FacetField(Field):
                                        self.rng_seed)
         # I think we prefer a random sort for facet terms, since
         # occurrence isn't really based on term length.
-        fterms = sorted(fterms, key=lambda v: self.fterm_emitter.rng.random())
+        rng = getattr(self.fterm_emitter, 'rng', self.rng)
+        fterms = sorted(fterms,
+                        key=lambda v: rng.random())  # type: ignore[union-attr]
         num_fterms = len(fterms)
         self.emitter = terms.TermChoice(gaussian_choice(
             fterms,
@@ -519,8 +523,8 @@ class BenchmarkSchema(Schema):
         # ensures fields get added to self.search_fields and
         # self.facet_fields, as appropriate.
         super().__init__(*fields)
-        self._search_term_emitter = None
-        self._num_docs = None
+        self._search_term_emitter: Optional[ItemsStrEmitterLike] = None
+        self._num_docs: Optional[int] = None
 
     @property
     def search_term_emitter(self) -> Optional[ItemsStrEmitterLike]:
@@ -537,7 +541,7 @@ class BenchmarkSchema(Schema):
         See `search_terms` attribute.
         """
         try:
-            return self._search_term_emitter.items
+            return self._search_term_emitter.items  # type: ignore[union-attr]
         except AttributeError:
             return None
 
@@ -662,8 +666,8 @@ class BenchmarkSchema(Schema):
         # which rely on other Fields.) This may take a noticeable
         # amount of time, depending on the size of the schema.
 
-        counts = {}
-        max_ratio_per_field = {}
+        counts: Dict[str, int] = {}
+        max_ratio_per_field: Dict[str, float] = {}
         sample_size = 1000
         for i in range(sample_size):
             doc = self()

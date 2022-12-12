@@ -9,7 +9,7 @@ readme = "README.md"
 authors = [{name = "Jason Thomale", email = "jason.thomale@unt.edu"}]
 keywords = ["Solr", "testing", "benchmarking", "data"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: BSD License",
     "Programming Language :: Python",
@@ -57,7 +57,7 @@ local_scheme = "no-local-version"
 [tool.tox]
 legacy_tox_ini = """
 [tox]
-envlist = flake8,pylint_critical,py{37,38,39,310,311}-{oldest,latest}
+envlist = flake8,pylint_critical,mypy_strict,py{37,38,39,310,311}-{oldest,latest}
 isolated_build = True
 
 [testenv]
@@ -124,6 +124,14 @@ deps =
     pylint
 commands =
     pylint solrbenchmark tests --ignore=__pycache__ --good-names=_,i,mn,mx,em
+
+[testenv:mypy_strict]
+basepython=python3.10
+deps =
+    mypy
+    types-ujson
+commands =
+    mypy src/solrbenchmark --strict --ignore-missing-imports --allow-subclassing-any --no-warn-return-any
 
 [testenv:build_package]
 basepython=python3.10

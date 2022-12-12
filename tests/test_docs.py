@@ -32,7 +32,7 @@ def fileset_check(facet_value_counts_check):
                        docsfile_exists=False, docsfile_is_empty=True,
                        countsfile_exists=False, countsfile_is_empty=True,
                        exp_search=None, exp_facet=None, exp_docs=None,
-                       exp_tdocs=None, exp_fvcounts=None):
+                       exp_tdocs=0, exp_fvcounts=None):
         assert fset.terms_filepath.exists() == termsfile_exists
         assert fset.terms_file_empty == termsfile_is_empty
         assert fset.docs_filepath.exists() == docsfile_exists
@@ -80,7 +80,7 @@ def test_fileset_get_nonexistent_data(tmpdir, fileset_check):
                   docsfile_exists=False, docsfile_is_empty=True,
                   countsfile_exists=False, countsfile_is_empty=True,
                   exp_search=None, exp_facet=None, exp_docs=None,
-                  exp_tdocs=None, exp_fvcounts=None)
+                  exp_tdocs=0, exp_fvcounts=None)
 
 
 def test_fileset_filepaths(tmpdir):
@@ -119,9 +119,9 @@ def test_fileset_get_saved_terms(search, facet, tmpdir, fileset_check):
 
 
 @pytest.mark.parametrize('tdocs, fv_counts', [
-    (None, None),
+    (0, None),
     (100, None),
-    (None, {'colors': [('red', 1), ('blue', 1)]}),
+    (0, {'colors': [('red', 1), ('blue', 1)]}),
     (100, {'colors': [('red', 1), ('blue', 1)]}),
 ])
 def test_fileset_create_counts(tdocs, fv_counts, tmpdir, fileset_check):
@@ -132,9 +132,9 @@ def test_fileset_create_counts(tdocs, fv_counts, tmpdir, fileset_check):
 
 
 @pytest.mark.parametrize('tdocs, fv_counts', [
-    (None, None),
+    (0, None),
     (100, None),
-    (None, {'colors': [('red', 1), ('blue', 1)]}),
+    (0, {'colors': [('red', 1), ('blue', 1)]}),
     (100, {'colors': [('red', 1), ('blue', 1)]}),
 ])
 def test_fileset_get_saved_counts(tdocs, fv_counts, tmpdir, fileset_check):
@@ -200,11 +200,11 @@ def test_fileset_save_and_overwrite_terms(old_search, old_facet, new_search,
 
 
 @pytest.mark.parametrize('old_tdocs, old_fvcounts, new_tdocs, new_fvcounts', [
-    (None, None, 100, {'colors': [('red', 1), ('blue', 1)]}),
+    (0, None, 100, {'colors': [('red', 1), ('blue', 1)]}),
     (5, {'something': [('one', 100)]}, 100,
      {'colors': [('red', 1), ('blue', 1)]}),
     (5, None, 100, None),
-    (None, {'colors': [('red', 1), ('blue', 1)]}, 100, None),
+    (0, {'colors': [('red', 1), ('blue', 1)]}, 100, None),
     (5, {'something': [('one', 100)]}, 100, None),
     (5, {'something': [('one', 100)]}, 0, {}),
 ])
@@ -355,7 +355,7 @@ def test_fileset_clear_files(tmpdir, fileset_check):
                   docsfile_exists=False, docsfile_is_empty=True,
                   countsfile_exists=False, countsfile_is_empty=True,
                   exp_search=None, exp_facet=None, exp_docs=None,
-                  exp_tdocs=None, exp_fvcounts=None)
+                  exp_tdocs=0, exp_fvcounts=None)
 
 
 def test_fileset_clear_nonexistent_files(tmpdir, fileset_check):
@@ -371,7 +371,7 @@ def test_fileset_clear_nonexistent_files(tmpdir, fileset_check):
                   docsfile_exists=False, docsfile_is_empty=True,
                   countsfile_exists=False, countsfile_is_empty=True,
                   exp_search=None, exp_facet=None, exp_docs=None,
-                  exp_tdocs=None, exp_fvcounts=None)
+                  exp_tdocs=0, exp_fvcounts=None)
 
 
 def test_fileset_multiple_different_filesets_at_once(tmpdir, fileset_check):

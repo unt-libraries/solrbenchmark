@@ -81,7 +81,7 @@ class TermChoice(ItemsMixin, RandomWithChildrenMixin, Emitter):
         )
 
     @property
-    def emits_unique_values(self) -> None:
+    def emits_unique_values(self) -> bool:
         """True if this emitter only emits unique values."""
         return False
 
@@ -124,7 +124,7 @@ class TermChoice(ItemsMixin, RandomWithChildrenMixin, Emitter):
             self._active_emitter = self.choice_emitter
             return self._active_emitter()
 
-    def emit_many(self, number) -> List[str]:
+    def emit_many(self, number: int) -> List[str]:
         """Selects and returns the next `number` terms.
 
         Each possible term from `choice_emitter` is emitted before
