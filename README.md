@@ -1,6 +1,8 @@
 solrbenchmark
 =============
 
+[![Build Status](https://github.com/unt-libraries/solrbenchmark/actions/workflows/do-checks-and-tests.yml/badge.svg?branch=main)](https://github.com/unt-libraries/solrbenchmark/actions)
+
 - [About](#about)
 - [Installation](#installation)
 - [Usage](#usage)
@@ -12,13 +14,13 @@ solrbenchmark
 
 *`solrbenchmark`* contains tools for benchmarking Solr instances: generating and loading fake but realistic data, running tests, and reporting results.
 
-If you're running [Apache Solr](https://solr.apache.org/), you know that pinning down Solr's hardware and configuration requirements can be notoriously difficult. So many factors affect how Solr will perform — including how many collections or Solr cores you have, the size and complexity of your schema(s), the size of your document sets, and the load you need to be able to handle. The usual advice is that you have to profile for your specific use case in order to get an idea about what you'll need.
+Pinning down hardware and configuration requirements to run [Apache Solr](https://solr.apache.org/) can be notoriously difficult. So many factors affect how Solr will perform — including how many Solr cores or collections you have, the size and complexity of your schema(s), the size of your document sets, and the load you need to be able to handle. The usual advice is, to estimate your needs, you should profile for your specific use case.
 
-One profiling approach is to benchmark: set up a Solr instance that reflects your production configuration (or a your best guess about what a solid configuration would be), load up documents that reflect your use case, and run tests to measure baseline performance. Then run additional tests, each of which changes some configuration variable, and compare results against the baseline to see what changes have what effects.
+One profiling approach is to benchmark — set up a Solr instance that reflects your production configuration (or your best guess about what a solid configuration would be), load up documents that reflect your use case, and run tests to measure baseline performance. Then run additional tests, each of which changes some configuration variable, and compare results against the baseline to see what changes have what effects.
 
 Benchmarking in this manner is time consuming, and there's a lot to consider. I wrote this package in an effort to save myself (and possibly others) some time by documenting and operationalizing aspects of this process.
 
-Be aware that this package came out of a particular implementation of Solr benchmarking tests. Although the workflow, methods, parameters, etc. may be inherently tied to the assumptions from that implementation, my goal has been to generalize things enough that it's more widely useful. The decisions I made and parameters I used may be problematic in various ways, so I'm releasing this as a pre-production version, which I hope to refine in the future.
+Be aware that this package was born from a particular test implementation and reflects numerous assumptions made during that testing process. However, my goal for this package has been to generalize that process enough to make it more widely useful. The decisions I made and parameters I used may be problematic in various ways, so I'm releasing this as a pre-production version, which I hope to refine in the future.
 
 See the [Usage](#usage) section for more details.
 
@@ -27,9 +29,9 @@ See the [Usage](#usage) section for more details.
 
 Solrbenchmark requires Python 3 and is tested with Python versions 3.7 and above.
 
-Dependencies installed upon installation include `fauxdoc` and `ujson`. If you're on Python 3.7, `importlib_metadata` and `typing_extentions` are installed as well.
+Other packages installed when you install `solrbenchmark` include `fauxdoc` ([more information here](https://github.com/unt-libraries/fauxdoc)) and `ujson`. If you're on Python 3.7, `importlib_metadata` and `typing_extentions` are installed as well.
 
-You will of course also need a Solr instance to test and a Python API for communicating with Solr: `pysolr` is what is expected and supported.
+You will of course also need access to a Solr instance to test, and you'll want to have an API for Solr in your Python environment: `pysolr` is what is expected and supported.
 
 [Top](#top)
 
@@ -51,7 +53,7 @@ See [Contributing](#contributing) for the recommended installation process if yo
 
 ### Before Getting Started
 
-The `solrbenchmark` package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project in an environment with access to the Solr instance(s) you want to use for testing. For benchmarking, it's recommended to test against an isolated Solr instance. However, you could use solrbenchmarking to run tests against e.g. pre-production environments to help with stress testing and configuration. Running solrbenchmark tests against a live production Solr instance is *not* recommended.
+The `solrbenchmark` package is a toolkit containing components that will help you benchmark a Solr core or collection. Before getting started you'll want to set up your benchmarking project in an environment with access to the Solr instance(s) you want to use for testing. It's recommended to test against an isolated Solr instance. However, you could run tests against e.g. pre-production environments to help with stress testing and configuration. Running solrbenchmark tests against a live production Solr instance is *not* recommended.
 
 You should also install the [`pysolr`](https://pypi.org/project/pysolr/) package in the same Python environment you install `solrbenchmark` to. When you run tests, it expects you to provide a Solr connection object that uses the `pysolr.Solr` API. (The methods it uses are limited to `add`, `commit`, and `search` — so if you have a different preferred Solr API, writing an adapter would not be too difficult. See `PysolrResultLike` and `PysolrConnLike` in `solrbenchmark.localtypes` for details about the expected protocols.)
 
@@ -62,17 +64,17 @@ Planning how you'll go about testing before getting started will help you unders
 
 - **The document set you're going to test.**
     - Are you testing for an existing collection or a collection that doesn't exist yet? It's easier to model your test configuration after an existing collection; for a new collection, you'll have to do some guesswork.
-    - How will you produce your test document set? With an existing collection, you can either use documents from the live document set or generate faked documents that emulate the live document set. With a new collection, you'll *have* to generate faked documents, obviously.
+    - How will you produce your test document set? With an existing collection, you can either use documents from the live document set or generate faked documents that emulate the live document set. With a new collection, clearly you'll *have* to generate faked documents.
         - Solrbenchmark assumes you will be generating faked documents — its tools are built around that use case. But, it could easily be adapted to use a pre-existing document set.
         - If you need to generate faked documents, you'll need to spend time setting up the code that will generate those documents. This process is somewhat involved. See [Setting Up Your Schema Faker](#setting-up-your-schema-faker) for more details.
     - How large do you need your test document set to be? Likely your test environment is a scaled-down version of your live environment. To get comparable tests, you'll want to scale your document set and your test environment similarly.
         - Memory usage is a particularly important consideration.
-        - If you're using documents from an actual document set, you'll want a sample that's representative of the whole set, in terms of document characteristics. What exactly that means and how you approach that depends on your document set and its characteristics! If your test document set will be 10% the size of your real document set, then perhaps taking every 10th document is a good enough approach.
-        - Do Solr requirements even scale linearly to document set size? This is a valid thing to test. You could create document sets of various sizes and test each against the same configurations to see how requirements scale.
+        - If you're using documents from your actual document set, you'll want a sample that's representative of the whole set, in terms of document characteristics. What exactly that means and how you approach that depends on your documents and their characteristics! If your test document set will be 10% the size of your real document set, then perhaps shuffling the documents and taking every 10th one is a good enough approach.
+        - Do Solr requirements even scale linearly to document set size? To test this, you could create document sets of various sizes and test each against the same configurations to see how requirements scale.
 - **The configurations you want to test.**
     - What will your baseline look like? It should be as close to your production configuration as possible. If you're testing a collection that isn't yet in production, or if you're using a scaled testing environment, then you'll have to make an educated guess about what a good middle-of-the-road configuration would look like for your collection.
     - What factors do you want to test? Brainstorm some variables you want to isolate and document some configurations that you want to test. Some good things to try to test include:
-        - The amount of total OS memory available to Solr. (Running your test Solr instance in a VM or Docker container makes it easy to change this.)
+        - The amount of total OS memory available to Solr. (Running your test Solr instance in a VM or Docker container makes this easy to change.)
         - The amount of Java heap memory available to the JVM.
         - Other JVM settings that affect heap usage, garbage collection, etc.
         - Document set size. How do your Solr requirements scale as your document set grows?
@@ -89,7 +91,7 @@ Planning how you'll go about testing before getting started will help you unders
     - I've found that running Solr in Docker is a good way to change otherwise hard-to-change factors, such as the amount of memory dedicated to the OS and the version of Solr you're testing against.
 - **Test parameters.**
     - Do you want to test indexing performance? Search performance? Both?
-    - For search tests, you'll need to consider what search terms you want to test and what other query parameters you want to test, such as facet values.
+    - For search tests, you'll need to consider what search terms you want to test and what other query parameters you want to test in combination, such as facet values.
         - For search terms, we assume that you want tests that cover a range of searches — searches on common terms that will give you a large result set down to rare terms and phrases that give you smaller results sets. Generally we assume that these search terms will appear in your document set in a ~normal distribution.
         - For facets, the two key factors are cardinality and distribution.
             - Cardinality: The set of unique values for each facet field in your document set should reflect the same cardinality you see in the actual collection — this could be static (5 unique values) or a function of the total number of documents (1 unique facet value per 1000 documents).
@@ -109,13 +111,13 @@ If you are generating a test document set that uses faked data, then you will ne
     - The range and distribution of values in multi-valued fields. How often is there 1 value? 2 values? 3? etc.
     - Occurrence of data in optional fields. Is a given field populated in 10% of records? 70%?
 - Words and word-length distributions, especially for search fields. Your text doesn't necessarily have to reflect precise words or word distributions in a given language. But modeling appropriate distributions of word lengths isn't difficult.
-    - (Side note: I'm not sure about this. What characteristics of text actually impact Solr performance? Presumably the number of words and word distributions *would* actually affect the size and contents of the search indexes. FUTURE TO-DO: Create an emitter type where we could generate a set vocabulary and the emitter would generate random text using that vocabulary, instead of just randomly choosing individual alphabet letters.)
-- Realistic distribution of search terms to test against. Completely random text won't cut it for terms you need to be able to search and actually produce a sizeable result set.
+    - (Side note: I'm not sure about this. What characteristics of text actually impact Solr performance? Presumably the number of words and word distributions *would* actually affect the size and contents of the search indexes. FUTURE TO-DO: Create a fauxdoc.Emitter type where we could generate a set vocabulary and the emitter would generate random text using the words in that vocabulary, instead of just randomly generating each word from scratch using individual alphabet letters.)
+- Realistic distribution of search terms to test against. Completely random text won't cut it for terms you need to be able to search to produce realistically-sized results sets.
 - Realistic cardinality and distribution of facet terms. Performance of faceting is known to be dependent on cardinality — how many unique facet values you have.
 
 #### Emitters, Fields, and Schemas
 
-The building blocks you'll use to create your schema faker are provided by `fauxdoc` and `solrbenchmark`. These include `Emitter` objects, which are then used in `Field` objects. A set of `Field` objects composes a `Schema` object, which you can then use to generate applicable documents.
+The building blocks you'll use to create your schema faker are provided by `fauxdoc` and `solrbenchmark`. These include `Emitter` objects, which are then used in `Field` objects. A set of `Field` objects composes a `Schema` object, which you can then use to generate applicable documents. (See the [`fauxdoc` package](https://github.com/unt-libraries/fauxdoc) for more in-depth information about these.)
 
 ##### Emitters
 
@@ -147,11 +149,10 @@ Your `Schema` ultimately contains all of your fields and produces your document 
 import csv
 from pathlib import Path
 
-import pysolr
-
-from solrbenchmark import docs, schema, terms, runner
 from fauxdoc.emitters import choice, fixed, fromfield, text
 from fauxdoc.profile import Field
+import pysolr
+from solrbenchmark import docs, schema, terms, runner
 
 
 # ****PLANNING & SETUP
@@ -414,21 +415,23 @@ Note that the last two development dependencies are only used for running integr
 
 ### Running Tests
 
+The repository and source package include both unit tests and integration tests, where the integration tests require an active Solr instance to test against. By default, if you invoke `pytest` from the repository root, both sets of tests will run.
+
 #### Unit Tests
 
-Run unit tests in your active environment by invoking:
+Run *only* unit tests in your active environment using:
 
 ```bash
 pytest --ignore=tests/integration 
 ```
 
-from the solrbenchmark root directory.
+from the solrbenchmark root directory. Unit tests do *not* require a running Solr instance.
 
 #### Integration tests
 
-I've written a small number of integration tests that test against an actual running Solr instance. These and all configuration needed to run them are in the `tests/integration` directory.
+Integration tests and all configuration needed to run them are isolated in the `tests/integration` directory.
 
-To run them, you can either provide your own test Solr core that uses the configuration in the `tests/integration/solrconf` directory or use Docker and docker-compose.
+Before you run them, you must either provide your own test Solr core that uses the configuration in the `tests/integration/solrconf` directory or use Docker and docker-compose with the supplied configuration.
 
 By default we expect Solr to run on 127.0.0.1:8983 using a core called `test_core`. You can change any of these values by setting them in a `tests/integration/.env` file, using `tests/integration/template.env` as a template. If the defaults are fine, you do not need to create the .env file.
 
@@ -436,7 +439,7 @@ By default we expect Solr to run on 127.0.0.1:8983 using a core called `test_cor
 
 ##### Using Docker-solr
 
-To use Docker, you must [have Docker and docker-compose installed](https://www.docker.com/get-started/). The supplied configuration will run Solr over Docker using [the official docker-solr image](https://github.com/apache/solr-docker).
+To use Docker, you must [have Docker and docker-compose installed](https://www.docker.com/get-started/). The supplied configuration will run Solr in Docker using [the official docker-solr image](https://github.com/apache/solr-docker).
 
 By default, when you run Solr, you can access the admin console at `localhost:8983`.
 
@@ -449,13 +452,13 @@ $ ./docker-compose.sh up -d
 
 The first time you run it, it will pull down the Solr image, which may take a few minutes. Also, note that you can leave off the `-d` to run Solr in the foreground, if you want to see what Solr logs as it runs.
 
-If you've launched `docker-solr` using `-d`, you can stop it like this:
+If you've launched `docker-solr` using `-d`, you can stop it like this, assuming you're still in the `tests/integration` directory:
 
 ```bash
 $ ./docker-compose.sh down
 ```
 
-If it's running in the foreground, you can stop it with ctrl+c.
+If it's running in the foreground, you can stop it with `ctrl+c`.
 
 ##### Running Integration Tests
 
@@ -503,7 +506,7 @@ tox
 Or just run linters:
 
 ```bash
-tox -e flake8,pylint_critical
+tox -e flake8,pylint_critical,mypy
 ```
 
 Or run tests against a list of specific environments:
@@ -512,7 +515,7 @@ Or run tests against a list of specific environments:
 tox -e py39-oldest,py39-newest
 ```
 
-See the [pyproject.toml](pyproject.toml) file for a list of all available tox environments. Some are NOT included in the default `tox` invocation, such as running integration tests and builds.
+Note that the default test environments only run unit tests. You can run integration tests from tox using `py37-integration`, `py38-integration`, etc. Integration tests, along with build commands, are not part of the default `tox` invocation. See the tox setup in the `tool.tox` section of the [pyproject.toml](pyproject.toml) file to find all available tox environments.
 
 [Top](#top)
 
