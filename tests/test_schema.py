@@ -7,11 +7,13 @@ from fauxdoc.emitters.text import Text, Word
 from fauxdoc.emitters.wrappers import WrapOne
 from fauxdoc.profile import Field
 
-from conftest import LETTERS
 from solrbenchmark import schema
 
 
 # Fixtures & Test Data
+
+LETTERS = 'abcdefghijklmnopqrstuvwxyz'
+
 
 def num_range(min_, max_):
     return Choice(range(min_, max_))
