@@ -506,7 +506,7 @@ tox
 Or just run linters:
 
 ```bash
-tox -e flake8,pylint_critical,mypy
+tox -e flake8,pylint_critical,mypy_strict
 ```
 
 Or run tests against a list of specific environments:
